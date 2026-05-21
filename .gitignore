@@ -1,0 +1,7 @@
+.DS_Store
+.obsidian/
+# OMC runtime state
+.omc/
+
+# Claude Code local config
+.claude/

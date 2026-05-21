@@ -1,0 +1,47 @@
+{
+  "skill_name": "weekly-report-summary",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我先不连邮箱，帮我用本地样例数据跑一遍这份周报汇总 skill，生成一份 Word 文档并告诉我输出路径。样例文件在 evals/fixtures/sample_reports.json。",
+      "expected_output": "Agent 识别出这是团队模式本地回归场景，优先使用 --json 模式运行脚本，成功生成 docx 并返回输出路径，而不是要求用户先配置邮箱。",
+      "files": [
+        "evals/fixtures/sample_reports.json"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "我在 Windows 电脑上第一次用这个周报 skill。先别跑汇总，告诉我邮箱地址和授权码应该填到哪里，并把当前配置文件、输出目录和模板路径打印出来。",
+      "expected_output": "Agent 先探测解释器，再运行 --print-paths，告知用户配置文件位于 runtime home，而不是让用户编辑 scripts/config.py。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "我刚运行周报汇总时提示模板里找不到: 李金，但这个人其实就是麻黄。帮我把这个映射写到本地配置里，不要改 skill 安装目录。",
+      "expected_output": "Agent 只把这条映射写入本地 config.json 的 name_alias_map override，不修改 skill 源码里的共享默认映射。",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "我想把自己过去几周发过的周报整理成一个 Markdown 文件，但先别连邮箱，直接用本地 fixture 跑个人模式回归。样例文件在 evals/fixtures/personal_reports.json，帮我导出并告诉我输出路径。",
+      "expected_output": "Agent 识别出这是个人归档模式本地回归场景，使用 --personal-json 生成单个 Markdown 归档文件，而不是走团队 Word 模板。",
+      "files": [
+        "evals/fixtures/personal_reports.json"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "我只想摘出个人历史周报里的本周完成工作，还是先用本地 fixture 验证。请用个人模式只导出 this_week_work 区块，样例文件在 evals/fixtures/personal_reports.json。",
+      "expected_output": "Agent 使用 --personal-json 配合 --section-only --section-key this_week_work，只导出标准区块键对应内容，并返回 Markdown 输出路径。",
+      "files": [
+        "evals/fixtures/personal_reports.json"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "我想导出自己近半年的历史周报，但阿里邮箱的已发送里现在只能看到最近一个月左右。请先帮我判断该怎么排查，再告诉我是否可以换成 inbox 模式，不要直接瞎改配置。",
+      "expected_output": "Agent 识别出这是个人归档模式的 IMAP 历史受限场景，应先解释可能是客户端同步范围限制，给出排查建议，并明确说明可以显式改用 --personal-mailbox inbox，而不是直接修改源码或随便更换默认目录。",
+      "files": []
+    }
+  ]
+}

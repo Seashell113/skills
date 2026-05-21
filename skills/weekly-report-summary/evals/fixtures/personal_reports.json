@@ -1,0 +1,23 @@
+[
+  {
+    "sender_name": "木通-张丁力",
+    "sender_email": "zhangdl@gancao.com",
+    "subject": "3月第3周周报(2026.03.09-2026.03.15)",
+    "date": "Mon, 16 Mar 2026 09:12:00 +0800",
+    "body": "本周完成工作\n1. 完成 weekly-report-summary 的双模式方案整理。\n2. 梳理 skill 运行时目录和配置边界。\n\n下周工作计划\n1. 落地个人历史周报导出链路。\n2. 补齐 skill 的本地评测数据。\n\n本周得与失\n把团队模式和个人模式拆清楚后，后续扩展更稳。\n\nBest regards\n木通\nMob: 13800138000"
+  },
+  {
+    "sender_name": "木通-张丁力",
+    "sender_email": "zhangdl@gancao.com",
+    "subject": "2月第4周周报(2026.02.23-2026.03.01)",
+    "date": "Mon, 02 Mar 2026 08:35:00 +0800",
+    "body": "事迹推车\n感谢@西瓜霜 帮忙确认模板落点。\n\n本周完成工作\n1. 清理 skill 目录中的历史输出物。\n2. 给周报模板补充最小样例。\n\n下周工作计划\n1. 增加个人周报提取能力。\n2. 为 skill 增加 pytest 覆盖。\n\n本周得与失\n本地 JSON 回归链路可以覆盖大部分格式问题。"
+  },
+  {
+    "sender_name": "其他同学",
+    "sender_email": "other@gancao.com",
+    "subject": "运营例会同步",
+    "date": "Tue, 10 Mar 2026 10:00:00 +0800",
+    "body": "这不是个人历史周报，不应被 fixture 默认过滤条件命中。"
+  }
+]

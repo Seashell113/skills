@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+
+# 历史遗留输出目录（当前版本已改为 runtime home）
+output/
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 临时文件
+.~*.docx
+~$*.docx

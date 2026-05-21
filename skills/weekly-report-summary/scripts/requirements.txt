@@ -1,0 +1,9 @@
+# 周报自动汇总工具依赖
+
+# Word 文档处理
+python-docx>=0.8.11
+
+# 以下为标准库，无需安装
+# imaplib - 邮件获取
+# email - 邮件解析
+# html.parser - HTML解析

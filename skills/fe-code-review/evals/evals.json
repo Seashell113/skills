@@ -1,0 +1,82 @@
+{
+  "skill_name": "fe-code-review",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我 review 一下 `/Users/zhangdingli/Desktop/workspace/projects/saas-frontend` 这个仓库里 `review-YGJ05.24.00/feat-reciple-up-0318` 这次改动相对 `master` 的实现。重点看这次版本改动能不能合、有没有明显回归风险，输出中文结论和详细 findings。",
+      "expected_output": "正确路由到 version-review，基于 origin/master 做版本级审查，输出全中文的“决策摘要 + 详细 Findings”，并给出四档合并建议之一。",
+      "files": [],
+      "expectations": [
+        "明确审查对象、对比基线和审查范围",
+        "输出结构包含“决策摘要”和“详细 Findings”两层",
+        "详细 Findings 中使用 P0/P1/P2/P3、置信度和阻塞性"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "这次没有 spec，只有分支背景：还是上面那个 saas-frontend 分支。请直接按代码 diff 和分支上下文做首轮版本审查，重点看主链路有没有断、原有功能有没有被带坏。默认按 `master` 来看。",
+      "expected_output": "能够在缺少需求文档的情况下完成 version-review，并在摘要里明确哪些判断基于代码上下文推断，而不是假装已经拿到完整需求。",
+      "files": [],
+      "expectations": [
+        "输出里明确说明缺少 spec 时的推断性质",
+        "仍然给出版本级结论，而不是因为没有 spec 就拒绝工作",
+        "重点覆盖功能正确性和影响面"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "帮我审一下 `/Users/zhangdingli/Desktop/workspace/projects/saas-frontend` 里这个大分支，相对 `master`。如果你判断这次改动足够大、值得拆分并行，先给我一份 review map，等我明确同意后你再用子 agent，不要直接并行。",
+      "expected_output": "先完成 diff 预扫描并输出 review map；在用户还没明确授权前，不直接进入子 agent 并行。",
+      "files": [],
+      "expectations": [
+        "在命中并行门槛时先产出 review map",
+        "review map 至少包含基线、diff 概览、热点模块、候选业务路径和推荐拆分方式",
+        "不会在用户未授权前直接使用子 agent"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "我已经明确允许你并行拆分了。还是审 saas-frontend 这个大分支，相对 `master`。如果要拆，优先按业务或模块范围拆；只有实在拆不开，再按审查角度拆。",
+      "expected_output": "在用户授权且命中门槛时，先产出 review map，再按“范围优先、角度兜底、按量仅辅助”的规则设计子 agent 拆分。",
+      "files": [],
+      "expectations": [
+        "不会直接按平均切 diff 的方式拆分",
+        "优先给出模块或业务路径拆分方案",
+        "若范围拆不开，才退到正确性/影响面/稳定性三类角度拆分"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "帮我 review `src/views/standard/workbench/ReceptionNew/ReceptionNew.vue` 这个文件，主要想看这个文件本身有没有明显问题，不用看整条分支。",
+      "expected_output": "识别这是 focused-review 倾向，而不是误走 version-review；明确说明该模式是后续扩展位，并追问是否改按版本级审查处理。",
+      "files": [],
+      "expectations": [
+        "不会假装当前已经完整支持 focused-review",
+        "会指出当前 V1 重点支持 version-review",
+        "会追问是否改按版本级审查处理"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "帮我看一下当前 staged changes 有没有明显问题，先不用看整个分支。",
+      "expected_output": "识别这是 staged-review 倾向，而不是误走 version-review；明确说明该模式是后续扩展位，并追问是否改按版本级审查处理。",
+      "files": [],
+      "expectations": [
+        "不会把 staged changes 请求硬解释成版本级审查",
+        "会说明 staged-review 是后续扩展位",
+        "会追问是否改按版本级审查处理"
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "这个分支不是和 `origin/master` 比，而是和 `origin/release-YGJ05.24.00` 比。请按这个基线给我做一次版本级首轮 review，并输出是否建议合并。",
+      "expected_output": "接受用户明确指定的基线分支，不会静默 fallback 到 origin/master，并基于指定基线完成 version-review。",
+      "files": [],
+      "expectations": [
+        "明确采用用户指定的基线 origin/release-YGJ05.24.00",
+        "不会静默回退到 origin/master",
+        "最终仍输出四档合并建议之一"
+      ]
+    }
+  ]
+}

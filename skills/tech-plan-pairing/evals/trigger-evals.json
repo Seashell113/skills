@@ -1,0 +1,26 @@
+[
+  {
+    "query": "我们团队想统一一套技术方案文档和实施路径，但现在问题、约束和目标都还比较模糊。你不要直接给结论，先和我一起把事情想清楚。",
+    "should_trigger": true
+  },
+  {
+    "query": "我们已经聊完一轮埋点方案了，现在请把这轮讨论里值得长期沉淀的内容整理成 context 拟更新摘要和准备修改的文件列表，先别落盘。",
+    "should_trigger": true
+  },
+  {
+    "query": "有人给了我一版初步技术方案，我不想直接改字句，先想和你一起回到问题定义和约束重新校准方向。",
+    "should_trigger": true
+  },
+  {
+    "query": "我们项目里的 background、spec、review-notes、tmp-plan 越来越乱了，先别改文件，帮我审视一下目录结构并给一个兼容迁移方案。",
+    "should_trigger": false
+  },
+  {
+    "query": "把 skills/README.md 更新一下，补一个新 skill 的表格行。",
+    "should_trigger": false
+  },
+  {
+    "query": "直接帮我写一版埋点统一字段模型方案正文，别问问题了。",
+    "should_trigger": false
+  }
+]
