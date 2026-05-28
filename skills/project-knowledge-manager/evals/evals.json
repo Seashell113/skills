@@ -1,0 +1,79 @@
+{
+  "skill_name": "project-knowledge-manager",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "这个前端项目刚接入 Agent 协作，根目录现在只有 README.md 和 src/。请根据团队项目知识沉淀规范帮我做一次初始化规划，说明应该创建哪些文件、不要创建哪些目录，以及每个文件先写什么。先不要直接改文件。",
+      "expected_output": "输出先计划后写的初始化方案；只建议 README.md、AGENTS.md、CLAUDE.md 等最小入口；明确不提前创建空 docs/、openspec/、.agents/；说明 CLAUDE.md 应薄引用 AGENTS.md。 ",
+      "files": [],
+      "expectations": [
+        "Output is written in Chinese, except for paths, commands, and code identifiers.",
+        "Output explicitly says it will not directly modify files before confirmation.",
+        "Output recommends the minimum entry set: README.md, AGENTS.md, and CLAUDE.md.",
+        "Output says not to create empty docs/, openspec/, or .agents/ directories yet.",
+        "Output states that CLAUDE.md should thinly reference AGENTS.md."
+      ]
+    },
+    {
+      "id": 1,
+      "prompt": "把这段讨论沉淀到合适的项目文档：订单支付页是高风险模块，涉及支付状态轮询、权限校验、埋点和退款入口。现在有个历史原因：老订单接口会在 3 秒内短暂返回 unknown，需要前端重试一次。发布时如果支付回调异常，要先回滚网关配置再回滚前端版本。还有一个待确认点：新支付渠道是否也会返回 unknown。请给出信息归位表和拟写入位置，先不要改文件。",
+      "expected_output": "将模块职责、业务流程、轮询/权限/埋点/退款、unknown 历史约束归到支付模块 README；将高风险 agent 约束归到模块 AGENTS 或根 AGENTS 的风险区；将发布回滚步骤归到 docs/runbooks；将新支付渠道 unknown 标为待验证；不把未验证内容写成事实。",
+      "files": [],
+      "expectations": [
+        "Output is written in Chinese, except for paths, commands, and code identifiers.",
+        "Output provides an information placement table.",
+        "Output places durable payment module knowledge in the payment module README.",
+        "Output places high-risk agent constraints in a module AGENTS.md or root AGENTS.md risk section.",
+        "Output places release and rollback steps in docs/runbooks/.",
+        "Output marks whether the new payment channel returns unknown as to_verify or 待验证."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "请审计一个已有项目的知识沉淀是否规范：AGENTS.md 很长，里面复制了 README 的 pnpm install、pnpm dev、pnpm build 命令和团队通用 commit 规范；CLAUDE.md 也写了一整套规则；docs/ 里放了业务验收标准；.agents/skills 是空目录；src/views/Profile/README.md 里复制了接口字段列表。请按严重程度输出问题、证据和修复建议。",
+      "expected_output": "输出审计报告；指出 AGENTS 过载和双写、CLAUDE 非薄适配、docs 与 openspec 职责混淆、空 .agents/skills、模块 README 复制代码级字段等问题；按 P1/P2/P3 或等价严重程度排序；给出对应迁移或删除建议。",
+      "files": [],
+      "expectations": [
+        "Output is written in Chinese, except for paths, commands, and code identifiers.",
+        "Output uses severity levels or an equivalent severity ordering.",
+        "Output identifies AGENTS.md overloading and duplicate README command details.",
+        "Output identifies CLAUDE.md as not being a thin adapter.",
+        "Output identifies docs/ holding business acceptance criteria as misplaced when OpenSpec should own behavior specs.",
+        "Output identifies empty .agents/skills as premature structure.",
+        "Output identifies module README copying interface fields as misplaced code-level detail.",
+        "Output provides concrete remediation actions for each issue."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "这个 skill 准备通过 npx skills 全局安装给团队用。我希望团队主要用 /pkm:init、/pkm:collect、/pkm:audit 作为短触发词，但如果某个工具触发不稳定，就让他们手动指定 project-knowledge-manager。请判断这种设计是否合适，并给出默认行为和 hook 边界。",
+      "expected_output": "说明 /pkm:init、/pkm:collect、/pkm:audit 适合作为高识别度短触发词，但不承诺安装后自动注册成各工具命令；说明全局分发时不需要默认在每个项目初始化 .agents/commands；列出三个触发词的用途和默认不直接落盘策略；说明触发不稳定时用 project-knowledge-manager 或项目知识管理 skill 显式触发；说明 hook 只适合提醒或生成候选，不应默认自动写文档；输出保持中文。",
+      "files": [],
+      "expectations": [
+        "Output is written in Chinese, except for paths, commands, and code identifiers.",
+        "Output says /pkm:* short triggers are appropriate as high-recognition entry points.",
+        "Output defines /pkm:init, /pkm:collect, and /pkm:audit.",
+        "Output says installing the skill does not guarantee automatic slash command registration across tools.",
+        "Output says project .agents/commands should not be initialized by default for global distribution.",
+        "Output provides explicit skill-name fallback such as project-knowledge-manager.",
+        "Output says command executions should plan first and wait for confirmation before writing.",
+        "Output says hooks should not automatically write documents by default."
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "当前会话的上层规则里有这些工作原则：剖析问题要第一性原理、回答要客观理性、自动 commit 信息保持中文。现在我在一个新项目里执行 /pkm:init，根目录只有 README.md 和 src/。请给出初始化计划，说明 AGENTS.md 应该写什么，先不要改文件。",
+      "expected_output": "输出中文初始化计划；建议 README.md、AGENTS.md、CLAUDE.md 等最小入口；明确 system/developer 指令、全局 AGENTS、用户长期偏好、团队通用 rules 不应默认写入项目 AGENTS.md；AGENTS.md 只写项目特异约束、风险路径和验证要求；来源边界检查显示不包含上层或全局规则复制；默认不直接改文件。",
+      "files": [],
+      "expectations": [
+        "Output is written in Chinese, except for paths, commands, and code identifiers.",
+        "Output explicitly says it will not directly modify files before confirmation.",
+        "Output recommends minimum project knowledge entry files such as README.md, AGENTS.md, and CLAUDE.md.",
+        "Output says system/developer instructions, global AGENTS.md, user long-term preferences, or team-wide rules should not be copied into the project by default.",
+        "Output says AGENTS.md should contain only project-specific constraints, risk paths, and validation requirements.",
+        "Output includes a source-boundary check showing no upper/global rules are copied.",
+        "Output does not treat the provided first-principles/objective-reasoning/Chinese-commit rules as project facts to be written."
+      ]
+    }
+  ]
+}
