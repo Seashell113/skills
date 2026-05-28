@@ -1,0 +1,119 @@
+{
+  "skill_name": "human-html-artifact",
+  "evals": [
+    {
+      "id": 0,
+      "name": "minimal-toolchain-plan-to-html",
+      "prompt": "请把 `evals/files/tech-plan.md` 转成一份适合技术评审会使用的单文件 HTML。保留源 Markdown，不要改源文件。",
+      "expected_output": "一个自包含中文 HTML sidecar，能主动发现技术方案中的阅读瓶颈，并用 HTML 的对照、图示、下钻、复制或矩阵能力提高评审效率。",
+      "files": [
+        "evals/files/tech-plan.md"
+      ],
+      "expectations": [
+        "输出一个主要的单文件 HTML artifact。",
+        "HTML 自包含，不依赖外部 CDN、远程脚本、远程样式、远程字体或远程图片。",
+        "页面界面文案以中文为主。",
+        "页面不是按源 Markdown 顺序线性套壳，而是主动识别评审时的阅读瓶颈并重组信息。",
+        "页面提供至少两类有明确阅读收益的 HTML affordance，例如对照、时间/阶段图、风险组织、证据下钻、复制复用或筛选定位；不要求固定模板。",
+        "页面保留关键事实：90+ 仓库、20-50 活跃仓库、fnm、本地迁移但 Jenkins 暂不迁移、Node 20.20.0、pnpm 10.30.3、pnpm 8.15.9、例外清单。",
+        "命令、JSON 示例、文件路径或配置片段按复用需要提供复制按钮或等价可复制控件。",
+        "页面提供响应式和打印处理。",
+        "页面明确源 Markdown 仍是 canonical source 或 HTML 是 sidecar 评审视图。"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "minimal-pr-review-to-html",
+      "prompt": "请把 `evals/files/pr-review.md` 转成一个便于作者和 reviewer 快速判断合并风险的单文件 HTML。界面保持中文阅读友好。",
+      "expected_output": "一个自包含中文 code review HTML，能让作者快速理解先改哪里、为什么有风险、对应证据是什么。",
+      "files": [
+        "evals/files/pr-review.md"
+      ],
+      "expectations": [
+        "输出一个主要的单文件 HTML artifact。",
+        "HTML 自包含，不依赖外部 CDN、远程脚本、远程样式、远程字体或远程图片。",
+        "页面靠前区域明确合并判断、最高风险或阻塞项。",
+        "页面按读者任务和风险优先级组织 finding，而不是按原文顺序流水账输出。",
+        "页面保留关键 diff 或代码片段，并保留 `-` 旧逻辑与 `+` 新逻辑的视觉区分。",
+        "关键文件路径、函数名、diff 片段或修复摘要按复用需要提供复制控件。",
+        "页面保留关键代码证据：`discountFlag.ts`、`calculate.ts`、`calculate.test.ts`、`logger.ts`、灰度开关默认 true、优惠计算顺序变化、日志字段改名。",
+        "页面包含开放问题、测试缺口和合并条件。",
+        "关闭 JS 后核心 finding 仍可读。"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "minimal-research-notes-to-briefing",
+      "prompt": "请把 `evals/files/research-notes.md` 整理成面向方案评审和决策者的单文件 HTML briefing。",
+      "expected_output": "一个自包含中文决策 briefing HTML，能主动解决字段分层、阶段边界和迁移标准在线性文档中难以同时看清的问题。",
+      "files": [
+        "evals/files/research-notes.md"
+      ],
+      "expectations": [
+        "输出一个主要的单文件 HTML artifact。",
+        "HTML 自包含，不依赖外部 CDN、远程脚本、远程样式、远程字体或远程图片。",
+        "页面界面文案以中文为主。",
+        "页面首屏明确当前阶段结论：行为数据走 SLS + SLS 仪表盘，业务数据继续走现有数仓 / QuickBI，正式入仓留到契约稳定后。",
+        "页面清楚区分当前链路和未来 ODS / DWD / DWS / QuickBI 链路。",
+        "页面让字段职责、迁移启动标准、SLS 退出标准、误读风险或证据追溯更容易被定位和比较。",
+        "页面保留关键事实：`event_name / view_name` 只是展示辅助、`user_phone` 是受控辅助、`page_stack / pagePaths` 从主方案移除、`event_data` 不能无治理进入看板。",
+        "页面提供至少两类有明确收益的 HTML affordance，例如对照、矩阵、筛选、图示、下钻或复制。",
+        "页面不是把所有章节简单照搬。"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "readme-maintenance-near-miss",
+      "prompt": "请帮我整理 `evals/files/readme-draft.md` 的 Markdown 结构和措辞，目标是继续作为仓库 README 维护。我不需要 HTML 页面，也不想引入额外 artifact。",
+      "expected_output": "不应生成 HTML。输出应保留 README / Markdown 作为正确维护格式，并给出修订后的 Markdown 或简洁编辑计划。",
+      "files": [
+        "evals/files/readme-draft.md"
+      ],
+      "expectations": [
+        "本次运行不创建 HTML artifact。",
+        "输出明确保留 Markdown 或 README 作为合适的 canonical 格式。",
+        "输出提供有用的修订版 Markdown 或简洁 Markdown 编辑计划。",
+        "输出不引入额外 artifact、脚本、样式框架或网页工作流。",
+        "输出保留源事实：Widget SDK 用于嵌入 checkout widget，配置包含 merchantId/env/onSuccess/onError，访问需要 checkout team。"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "minimal-code-design-review-to-html",
+      "prompt": "请把 `evals/files/html-effectiveness-code-design-pack.md` 做成一个给 PR reviewer、组件库维护者和业务接入方看的单文件 HTML。",
+      "expected_output": "一个自包含中文 HTML artifact，能帮助 reviewer 同时理解代码风险、模块关系、设计 token 和组件状态，而不是只阅读一份长文。",
+      "files": [
+        "evals/files/html-effectiveness-code-design-pack.md"
+      ],
+      "expectations": [
+        "输出一个主要的单文件 HTML artifact。",
+        "HTML 自包含，不依赖外部 CDN、远程脚本、远程样式、远程字体或远程图片。",
+        "页面主动识别材料中代码 diff、模块关系、token、组件状态和埋点兼容之间的阅读瓶颈。",
+        "页面保留关键 diff，并说明相关风险和建议。",
+        "页面让模块路径、设计 token、组件 variants 或埋点 JSON 更容易比较、定位或复用；具体 affordance 不限定为固定结构。",
+        "关键文件路径、diff、JSON、token 或组件 prop 按复用需要提供复制按钮。",
+        "页面保留关键风险：icon 组件引用可能渲染失败、缺少 aria-live、多 action 场景、旧埋点 dashboard 兼容。",
+        "页面中文界面优先，源 Markdown 仍是 canonical sidecar 来源。"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "minimal-ops-status-to-html",
+      "prompt": "请把 `evals/files/default-design-ops-notes.md` 做成一个单文件 HTML 状态页。源 Markdown 保持 canonical。",
+      "expected_output": "一个轻量、自包含、中文优先的状态 HTML，能突出是否需要介入、阻塞在哪里、下一步是什么。",
+      "files": [
+        "evals/files/default-design-ops-notes.md"
+      ],
+      "expectations": [
+        "输出一个主要的单文件 HTML artifact。",
+        "HTML 自包含，不依赖外部 CDN、远程脚本、远程样式、远程字体或远程图片。",
+        "页面在用户未指定视觉系统时使用 `references/DESIGN.md` / Vercel-like 默认视觉基线。",
+        "页面中文 UI 优先。",
+        "页面首屏展示总体状态、阻塞项、下个里程碑和需要介入的决策。",
+        "页面保留关键事实：导出队列 backlog 184、P95 9.2 分钟、账单同步延迟 37 分钟、需要在周三前决定是否扩大 worker pool。",
+        "页面足够轻量，不为短文强塞复杂 dashboard 或编辑器。",
+        "行动项、命令或状态摘要按复用需要提供复制按钮或等价可复制控件。"
+      ]
+    }
+  ]
+}

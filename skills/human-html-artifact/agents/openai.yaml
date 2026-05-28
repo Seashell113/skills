@@ -1,0 +1,7 @@
+interface:
+  display_name: "Human HTML Artifact"
+  short_description: "把复杂 Markdown 材料生成可读 HTML 视图"
+  default_prompt: "Use $human-html-artifact to turn this complex Markdown material into a self-contained HTML sidecar view."
+
+policy:
+  allow_implicit_invocation: true
