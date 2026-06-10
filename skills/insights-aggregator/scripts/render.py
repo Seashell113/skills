@@ -156,11 +156,13 @@ def main():
     by_agent = agg["by_agent"]
     cross = agg["cross_tool"]
     multi_tool = len(by_agent) > 1
+    window = agg.get("window") or {}
+    window_label = f"近 {window['days']} 天" if window.get("days") else "全部历史"
 
     # ---- 顶部统计 ----
     stats = [
         (f"{c['total_sessions']}", "会话"),
-        (f"{c['sessions_with_facets']}", "已深析"),
+        (f"{c['sessions_with_facets']}/{c['total_sessions']}", "语义深析"),
         (f"{c['total_messages']:,}", "消息"),
         (f"{c['total_duration_hours']:.0f}h", "活跃时长"),
         (f"{c['git_commits']}", "提交"),
@@ -515,7 +517,7 @@ def main():
 <style>{css}</style></head>
 <body><div class="container">
 <h1>Agent 使用洞察报告</h1>
-<div class="subtitle">{esc(agents_label)} · {esc(c['date_range'].get('start'))} 至 {esc(c['date_range'].get('end'))} · 生成于 {date.today().isoformat()}</div>
+<div class="subtitle">{esc(agents_label)} · {esc(window_label)}（{esc(c['date_range'].get('start'))} 至 {esc(c['date_range'].get('end'))}） · 生成于 {date.today().isoformat()}</div>
 <div class="nav-toc">{toc_html}</div>
 <div class="stats-row">{stats_html}</div>
 {glance_html}

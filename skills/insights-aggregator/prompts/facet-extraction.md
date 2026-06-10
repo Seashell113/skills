@@ -46,6 +46,7 @@ JSON 必须严格符合以下 schema：
 {
   "agent": "{{agent}}",
   "session_id": "{{session_id}}",
+  "_user_message_count": {{user_message_count}},
   "underlying_goal": "用户根本上想达成什么（中文）",
   "goal_categories": {"类别key": 次数},
   "outcome": "fully_achieved|mostly_achieved|partially_achieved|not_achieved|unclear_from_transcript",
@@ -59,6 +60,6 @@ JSON 必须严格符合以下 schema：
   "user_instructions_to_agent": ["具体指令（保留用户原话语言）", ...]
 }
 
-注意：JSON 的 key 和枚举值保持英文（供程序消费）；`underlying_goal`、`friction_detail`、`brief_summary` 等自由文本字段用中文写。
+注意：JSON 的 key 和枚举值保持英文（供程序消费）；`underlying_goal`、`friction_detail`、`brief_summary` 等自由文本字段用中文写。`_user_message_count` 原样填入给定数字（用于检测会话续写后 facet 过期），不要自己数。
 
 写完文件后，你的最终回复只需：`done {{session_id}}`（若 transcript 不可读则回复 `failed {{session_id}}: 原因`）。

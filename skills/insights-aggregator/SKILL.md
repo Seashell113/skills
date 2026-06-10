@@ -23,21 +23,25 @@ reference/codex-session-schema.md   Codex rollout JSONL 格式与字段映射表
 
 ## 执行流程
 
-用户可指定时间范围（如"最近30天"→ `--days 30`）和分析深度（facet 数量 `--max-facets`，默认 40，约等于 40 个并行子 agent 调用，用户要求"快速"时降到 15）。
+### Step 0 — 与用户确认范围（开跑前）
+
+默认分析**最近一个月**（`--days 30`）、facet 提取上限 **50 条**。开跑前向用户确认一句，并说明：调大窗口或分析数（如全历史、`--max-facets 200`）意味着更多并行子 agent 调用、更高的 LLM 开销和耗时。用户没有特殊要求就用默认值直接开始。
 
 ### Step 1 — 采集（脚本，无 LLM）
 
 ```bash
-python3 {skill_dir}/scripts/collect.py [--days N] [--max-facets 40]
+python3 {skill_dir}/scripts/collect.py [--days 30] [--max-facets 50]
 ```
 
-读 stdout JSON：关注 `metas_by_agent`（两个工具是否都有数据）、`pending_facets`（待提取数）、`note_remaining_uncached`（>0 说明还有历史会话未解析，可再跑一次 collect 或提高 `--max-load`）。
+窗口语义：SessionMeta 始终全量增量维护（便宜）；facet 只对窗口内的实质会话提取（新→旧，**不向窗口外回填**）。已提取过但 resume 后大幅续写（消息 +5 条以上）的会话会自动重新入队。
+
+读 stdout JSON：关注 `metas_by_agent`（两个工具是否都有数据）、`substantive_in_window` / `facets_already_cached` / `pending_facets`（窗口内总数 / 已有缓存 / 本次待提取）、`note_remaining_uncached`（>0 说明还有历史会话未解析 meta，可提高 `--max-load` 再跑一次）。
 
 ### Step 2 — Facet 提取（并行子 agent）
 
 读 `~/.agent-insights/work/pending_facets.json`。若为空（全部命中缓存）直接跳到 Step 3。
 
-按 `prompts/facet-extraction.md` 中的 PROMPT 模板，为每个待提取会话派发一个子 agent（替换 `{{transcript_path}}`、`{{facet_path}}`、`{{agent}}`、`{{session_id}}` 占位符）。要点：
+按 `prompts/facet-extraction.md` 中的 PROMPT 模板，为每个待提取会话派发一个子 agent（替换 `{{transcript_path}}`、`{{facet_path}}`、`{{agent}}`、`{{session_id}}`、`{{user_message_count}}` 占位符，取值都在 pending_facets.json 里）。要点：
 
 - **并行**派发，每批 8-10 个；子 agent 用最快可用的模型即可（提取任务不需要最强模型）。若快模型报 429/不可用，直接降级用默认模型重试，不要反复重试快模型。
 - 子 agent 自己读 transcript、自己写 facet JSON 文件，主 agent 不要捧着 transcript 内容。
@@ -46,10 +50,10 @@ python3 {skill_dir}/scripts/collect.py [--days N] [--max-facets 40]
 ### Step 3 — 聚合（脚本，无 LLM）
 
 ```bash
-python3 {skill_dir}/scripts/aggregate.py
+python3 {skill_dir}/scripts/aggregate.py [--days 30]
 ```
 
-读 stdout：`facets_used`、`cross_tool_overlap_events`、`handoff_direction_counts`。无效的 facet 文件会被静默忽略；若 `facets_used` 明显小于已提取数，检查 facet JSON 格式。
+`--days` 必须与 Step 1 一致（统计与语义同窗，报告才是真正的"阶段报告"；`--days 0` 为全历史）。读 stdout：`facets_used`、`cross_tool_overlap_events`、`handoff_direction_counts`。无效的 facet 文件会被静默忽略；若 `facets_used` 明显小于已提取数，检查 facet JSON 格式。
 
 ### Step 4 — 洞察生成（并行子 agent + 1 个串行）
 
@@ -71,8 +75,9 @@ python3 {skill_dir}/scripts/render.py
 
 ## 增量与缓存
 
-- SessionMeta 与 facet 都按 `(agent, session_id)` 缓存；源 jsonl 文件 mtime 变化会自动重算 meta（facet 不重算——语义结论基本稳定，省 LLM 调用）。
-- 二次运行只为新会话付 LLM 成本。强制全量重提：删 `~/.agent-insights/cache/facets/`。
+- SessionMeta 按 `(agent, session_id)` 缓存，源 jsonl 文件 mtime 变化自动重算（全量增量维护）。
+- facet 按 `(agent, session_id)` 永久缓存，仅当会话 resume 后大幅续写（消息 +5 条以上，依据 facet 内 `_user_message_count` 戳）才重提。
+- 同窗口重复运行、或不同时期的窗口有重叠时，重叠部分直接复用缓存，只为新会话付 LLM 成本。强制全量重提：删 `~/.agent-insights/cache/facets/`。
 
 ## 模型与成本视角（重要背景）
 
@@ -97,6 +102,8 @@ python3 {skill_dir}/scripts/render.py
 - Codex 的 token 口径取 `input_tokens - cached_input_tokens`，对齐 Claude 的"不含缓存读取"口径。
 - 会话时长有两个口径：`duration_minutes`（首尾跨度，源码兼容）与 `active_minutes`（事件间隔求和、单段 gap 封顶 15 分钟）。聚合统计用后者——Codex 会话常被跨天/跨周 resume，跨度口径会把一个会话算成上百小时。
 - Claude 的 `/command` 本地执行记录（`<command-name>`、`<local-command-stdout>` 等）不计入人类消息。
+- Codex 工具报错统计豁免 `rg`/`grep`/`diff`/`test` 等命令的退出码 1（无匹配/有差异是预期语义，不算失败），避免报错数虚高误导摩擦分析。
+- 跨工具项目对齐用路径尾部两段作为键（同一项目在不同根路径下也能关联接力）。
 - facet 提示词新增 `user_instructions_to_agent`（源码类型里有但从未填充），用于支撑 CLAUDE.md/AGENTS.md 配置建议。
 - 跨工具部分（overlap 区分跨工具并行、同项目 45 分钟接力检测、项目×工具矩阵、`tool_comparison` 与 `cross_tool_workflows` 两个 section、at_a_glance 的 `tool_division`）为本 skill 新增能力。
 

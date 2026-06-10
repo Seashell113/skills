@@ -7,8 +7,14 @@
   3. 为待提取 facet 的会话生成格式化 transcript，输出 pending_facets.json 供 LLM 层消费
 
 用法:
-  python3 collect.py [--home ~/.agent-insights] [--days N] [--max-load 200]
-                     [--max-facets 40] [--claude-dir ~/.claude] [--codex-dir ~/.codex]
+  python3 collect.py [--home ~/.agent-insights] [--days 30] [--max-load 200]
+                     [--max-facets 50] [--claude-dir ~/.claude] [--codex-dir ~/.codex]
+
+窗口语义:
+  - SessionMeta 始终全量增量维护（解析便宜，长程信号需要完整历史）。
+  - facet 提取只针对 --days 窗口内（默认最近 30 天）的实质会话，新→旧最多
+    --max-facets 条，不向窗口外回填。--days 0 表示不限窗口。
+  - 已缓存 facet 的会话若消息数显著增长（resume 续写 ≥5 条），会重新入队提取。
 
 输出（写入 --home 目录）:
   cache/meta/{agent}/{session_id}.json     SessionMeta 缓存（按源文件 mtime 失效）
@@ -24,9 +30,9 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 8
 INTERRUPT_MARKER = "[Request interrupted by user"
 # Claude Code 把 /command 的本地执行记录也写成 user 消息，不是人类输入
 CLAUDE_NOISE_RE = re.compile(
@@ -292,6 +298,8 @@ CODEX_FILE_RE = re.compile(r"rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-
 EXIT_CODE_RE = re.compile(r"exited with code (\d+)")
 PATCH_FILE_RE = re.compile(r"^\*\*\* (Add|Update|Delete) File: (.+)$", re.MULTILINE)
 CODEX_WRAPPER_RE = re.compile(r"^<(environment_context|user_instructions|permissions|turn_context)", re.IGNORECASE)
+# 这些命令退出码 1 是预期语义（无匹配/有差异），不算工具失败
+BENIGN_EXIT1_RE = re.compile(r"^\s*(rg|grep|egrep|fgrep|diff|cmp|test|\[)\b")
 
 
 def codex_scan(codex_dir):
@@ -330,6 +338,7 @@ def _codex_patch_stats(patch_text, events, ts):
 def codex_parse(path, session_id):
     events, project_path, source = [], "", None
     start = None
+    call_cmds = {}  # call_id → 命令字符串，用于报错豁免判断
     with open(path, encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
@@ -389,6 +398,11 @@ def codex_parse(path, session_id):
                         _codex_patch_stats(args.get("input") or args.get("patch") or "", events, ts)
                     else:
                         events.append({"kind": "tool_use", "ts": ts, "tool": name, "input": args})
+                    cmd = args.get("cmd") or args.get("command") or ""
+                    if isinstance(cmd, list):
+                        cmd = " ".join(str(x) for x in cmd)
+                    if cmd and p.get("call_id"):
+                        call_cmds[p["call_id"]] = cmd
                 elif pt == "custom_tool_call":
                     name = p.get("name") or "unknown"
                     if name == "apply_patch":
@@ -399,6 +413,12 @@ def codex_parse(path, session_id):
                     out_text = p.get("output") or ""
                     m = EXIT_CODE_RE.search(out_text if isinstance(out_text, str) else "")
                     is_err = bool(m and m.group(1) != "0")
+                    # 豁免 rg/grep/diff/test 等退出码 1（无匹配/有差异是预期行为，非失败）。
+                    # Codex shell 带 pipefail：管道退出码可能来自首段（rg|head）或末段（ps|rg），两端都检查。
+                    if is_err and m.group(1) == "1":
+                        segs = [x.strip() for x in call_cmds.get(p.get("call_id"), "").split("|")]
+                        if BENIGN_EXIT1_RE.match(segs[0]) or BENIGN_EXIT1_RE.match(segs[-1]):
+                            is_err = False
                     events.append({"kind": "tool_result", "ts": ts, "is_error": is_err,
                                    "error_text": ("exit code " + m.group(1) + " " + out_text[:300]) if is_err else ""})
     tss = [ev["ts"] for ev in events if ev["ts"]]
@@ -601,9 +621,9 @@ def main():
     ap.add_argument("--home", default=os.path.expanduser("~/.agent-insights"))
     ap.add_argument("--claude-dir", default=os.environ.get("CLAUDE_CONFIG_DIR", os.path.expanduser("~/.claude")))
     ap.add_argument("--codex-dir", default=os.path.expanduser("~/.codex"))
-    ap.add_argument("--days", type=int, default=0, help="只分析最近 N 天（0=全部）")
+    ap.add_argument("--days", type=int, default=30, help="facet 提取窗口：最近 N 天（0=不限）；meta 始终全量维护")
     ap.add_argument("--max-load", type=int, default=200, help="单次最多解析的未缓存会话数")
-    ap.add_argument("--max-facets", type=int, default=40, help="单次最多生成的 facet 待提取数")
+    ap.add_argument("--max-facets", type=int, default=50, help="窗口内最多提取的 facet 数")
     args = ap.parse_args()
 
     home = args.home
@@ -613,9 +633,6 @@ def main():
         os.makedirs(os.path.join(home, sub), exist_ok=True)
 
     scanned = claude_scan(args.claude_dir) + codex_scan(args.codex_dir)
-    if args.days > 0:
-        cutoff = datetime.now().timestamp() - args.days * 86400
-        scanned = [s for s in scanned if s["mtime"] >= cutoff]
     scanned.sort(key=lambda x: -x["mtime"])
 
     metas, parsed_cache = [], {}
@@ -654,16 +671,30 @@ def main():
         metas.append(meta)
         parsed_cache[(info["agent"], info["session_id"])] = s
 
-    # substantive 过滤（≥2 条人类消息、≥1 分钟）后挑选待提取 facet 的会话（新→旧）
+    # facet 选取：窗口内（--days，按会话开始时间）的实质会话，新→旧最多 --max-facets 条。
+    # 不向窗口外回填；已缓存的跳过，除非会话在提取后又显著续写（消息数 +5 以上）。
+    cutoff_iso = ""
+    if args.days > 0:
+        cutoff_iso = iso(datetime.now(timezone.utc) - timedelta(days=args.days))
     substantive = [m for m in metas if m["user_message_count"] >= 2 and m["duration_minutes"] >= 1]
-    substantive.sort(key=lambda m: m["start_time"], reverse=True)
-    pending = []
-    for m in substantive:
-        if len(pending) >= args.max_facets:
-            break
+    in_window = [m for m in substantive if m["start_time"] >= cutoff_iso]
+    in_window.sort(key=lambda m: m["start_time"], reverse=True)
+    candidates = in_window[:args.max_facets]
+    pending, cached_facets_in_window = [], 0
+    for m in candidates:
         facet_path = os.path.join(home, "cache/facets", m["agent"], m["session_id"] + ".json")
         if os.path.exists(facet_path):
-            continue
+            stale = False
+            try:
+                with open(facet_path, encoding="utf-8") as fh:
+                    old_count = json.load(fh).get("_user_message_count")
+                if old_count is not None and m["user_message_count"] - old_count >= 5:
+                    stale = True  # resume 后大幅续写，语义结论可能已过期
+            except (json.JSONDecodeError, OSError):
+                stale = True
+            if not stale:
+                cached_facets_in_window += 1
+                continue
         key = (m["agent"], m["session_id"])
         s = parsed_cache.get(key)
         if s is None:
@@ -683,6 +714,7 @@ def main():
         os.chmod(tpath, 0o600)
         pending.append({"agent": m["agent"], "session_id": m["session_id"],
                         "transcript_path": tpath, "facet_path": facet_path,
+                        "user_message_count": m["user_message_count"],
                         "chars": os.path.getsize(tpath)})
 
     with open(os.path.join(home, "work/pending_facets.json"), "w", encoding="utf-8") as fh:
@@ -699,7 +731,11 @@ def main():
         "from_cache": skipped_cache,
         "parsed_now": loaded - failed,
         "parse_failed_or_meta": failed,
-        "substantive": len(substantive),
+        "facet_window_days": args.days,
+        "substantive_total": len(substantive),
+        "substantive_in_window": len(in_window),
+        "facet_candidates": len(candidates),
+        "facets_already_cached": cached_facets_in_window,
         "pending_facets": len(pending),
         "pending_facets_file": os.path.join(home, "work/pending_facets.json"),
         "note_remaining_uncached": max(0, len(scanned) - skipped_cache - loaded),
