@@ -40,6 +40,7 @@ npx skills list -g
 | --- | --- |
 | `fe-code-review` | 团队前端代码审查入口，聚焦版本级审查、回归风险和合并建议 |
 | `human-html-artifact` | 将复杂 Markdown 或多文档材料转为自包含 HTML 阅读页 |
+| `insights-aggregator` | 汇总 Claude Code 与 Codex 本地会话，生成跨工具个人使用洞察报告 |
 | `project-knowledge-manager` | 项目知识沉淀、目录规范化、信息归位和文档审计 |
 | `tech-plan-pairing` | 技术方案结对制定，适合从模糊问题逐步收敛到可落地方案 |
 | `weekly-report-summary` | 通过IMAP从周报邮件中提取信息，支持团队汇总和个人周报归档 |
