@@ -14,7 +14,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 HANDOFF_WINDOW_MIN = 45      # 同项目跨工具接力窗口
 OVERLAP_WINDOW_MS = 30 * 60_000  # 并行检测滑动窗口（与源码一致）
@@ -57,13 +57,14 @@ def bump(d, k, n=1):
 
 
 def normalize_project(p):
-    """归一路径，使跨工具的同一项目可对齐（去掉 /Desktop 等历史前缀差异只能靠尾部目录名）。"""
-    return (p or "").rstrip("/")
+    """统一斜杠后取尾部两段作为项目键：同一项目在不同根路径下
+    （如 ~/Desktop/workspace/projects/skills 与 ~/workspace/projects/skills）也能对齐。"""
+    parts = (p or "").rstrip("/").split("/")
+    return "/".join(parts[-2:]) if len(parts) >= 2 else (p or "(unknown)")
 
 
 def project_label(p):
-    parts = normalize_project(p).split("/")
-    return "/".join(parts[-2:]) if len(parts) >= 2 else (p or "(unknown)")
+    return normalize_project(p)
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +327,10 @@ def build_context(agg, facets):
     lines.append("```")
 
     lines.append("\n## Context notes（解读数据前必读）")
+    w = agg.get("window") or {}
+    if w.get("days"):
+        lines.append(f"- 本报告是**阶段性窗口报告**：只覆盖最近 {w['days']} 天（{w.get('cutoff')} 之后）的会话，"
+                     "统计与语义同窗。叙事请立足'这个阶段'，不要写成全历史总结。")
     lines.append("- 跨工具混用的常见动因是**成本控制**而非单纯能力偏好：Codex 走官方模型，"
                  "Claude Code 可方便地接入低成本第三方/国产模型（看 models_by_turns 即可判断是否如此——"
                  "若出现 kimi/deepseek/glm 等模型名，说明用户在用国产模型跑可控任务）。评价分工时请基于这一动因。")
@@ -361,12 +366,19 @@ def build_context(agg, facets):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--home", default=os.path.expanduser("~/.agent-insights"))
+    ap.add_argument("--days", type=int, default=30, help="报告窗口：最近 N 天（0=全历史），统计与语义同窗")
     args = ap.parse_args()
     home = args.home
 
     metas = []
     for agent in ("claude-code", "codex"):
         metas.extend(load_dir(os.path.join(home, "cache/meta", agent)))
+    # 窗口过滤：统计与语义使用同一时间窗，保证报告叙事口径一致
+    cutoff_iso = ""
+    if args.days > 0:
+        cutoff_iso = (datetime.now(timezone.utc) - timedelta(days=args.days)) \
+            .isoformat().replace("+00:00", "Z")
+        metas = [m for m in metas if m["start_time"] >= cutoff_iso]
     facets_raw = []
     for agent in ("claude-code", "codex"):
         for f in load_dir(os.path.join(home, "cache/facets", agent)):
@@ -400,6 +412,7 @@ def main():
 
     agg = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "window": {"days": args.days, "cutoff": cutoff_iso[:10] if cutoff_iso else None},
         "combined": aggregate_group(metas, facets_by_key),
         "by_agent": {agent: aggregate_group([m for m in metas if m["agent"] == agent], facets_by_key)
                      for agent in sorted({m["agent"] for m in metas})},
