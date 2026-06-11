@@ -3,5 +3,5 @@
   "private": true,
   "version": "0.1.0",
   "description": "团队统一的前端版本实现审查 skill",
-  "license": "UNLICENSED"
+  "license": "MIT"
 }
