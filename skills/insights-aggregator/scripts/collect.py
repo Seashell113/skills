@@ -32,7 +32,7 @@ import re
 import sys
 from datetime import datetime, timedelta, timezone
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 INTERRUPT_MARKER = "[Request interrupted by user"
 # Claude Code 把 /command 的本地执行记录也写成 user 消息，不是人类输入
 CLAUDE_NOISE_RE = re.compile(
@@ -117,7 +117,7 @@ def iso(dt):
 
 class ParsedSession:
     def __init__(self, agent, session_id, project_path, events, start, end,
-                 summary=None, source=None):
+                 summary=None, source=None, thread_source=None):
         self.agent = agent
         self.session_id = session_id
         self.project_path = project_path
@@ -126,6 +126,7 @@ class ParsedSession:
         self.end = end
         self.summary = summary
         self.source = source  # codex: vscode / Codex Desktop / cli
+        self.thread_source = thread_source  # codex: user / subagent / None(旧版本无此字段)
 
 
 # ---------------------------- Claude Code 适配器 ----------------------------
@@ -337,7 +338,7 @@ def _codex_patch_stats(patch_text, events, ts):
 
 def codex_parse(path, session_id):
     events, project_path, source = [], "", None
-    start = None
+    start, thread_source = None, None
     call_cmds = {}  # call_id → 命令字符串，用于报错豁免判断
     with open(path, encoding="utf-8") as fh:
         for line in fh:
@@ -354,6 +355,7 @@ def codex_parse(path, session_id):
                 # resume 会追加新的 session_meta，start/cwd 以第一条为准
                 project_path = project_path or p.get("cwd") or ""
                 source = source or p.get("originator") or p.get("source")
+                thread_source = thread_source or p.get("thread_source")
                 start = start or ts
             elif t == "turn_context":
                 project_path = project_path or p.get("cwd") or ""
@@ -425,7 +427,8 @@ def codex_parse(path, session_id):
     if not tss:
         return None
     return ParsedSession("codex", session_id, project_path, events,
-                         start or min(tss), max(tss), source=source)
+                         start or min(tss), max(tss), source=source,
+                         thread_source=thread_source)
 
 
 # ============================================================================
@@ -444,6 +447,7 @@ def compute_meta(s: ParsedSession, src_mtime):
     user_count = assistant_count = 0
     models, efforts = {}, {}
     thinking_turns = thinking_total = 0
+    auto_review_turns = 0
     first_prompt = ""
     cat_map = CLAUDE_TOOL_CATEGORY if s.agent == "claude-code" else CODEX_TOOL_CATEGORY
     last_assistant_ts = None
@@ -516,10 +520,14 @@ def compute_meta(s: ParsedSession, src_mtime):
         elif k == "interrupt":
             interruptions += 1
         elif k == "turn":
-            if ev.get("model"):
-                models[ev["model"]] = models.get(ev["model"], 0) + 1
-            if ev.get("effort"):
-                efforts[ev["effort"]] = efforts.get(ev["effort"], 0) + 1
+            if ev.get("model") == "codex-auto-review":
+                # 自动评审通道：内部流量，不计入用户的模型/强度分布
+                auto_review_turns += 1
+            else:
+                if ev.get("model"):
+                    models[ev["model"]] = models.get(ev["model"], 0) + 1
+                if ev.get("effort"):
+                    efforts[ev["effort"]] = efforts.get(ev["effort"], 0) + 1
             if ev.get("thinking") is not None:
                 thinking_total += 1
                 if ev["thinking"]:
@@ -538,6 +546,11 @@ def compute_meta(s: ParsedSession, src_mtime):
                         response_times.append(round(rt, 1))
 
     duration_min = round((s.end - s.start).total_seconds() / 60)
+    # 内部会话判定：spawn_agent 的 worker/grader 子会话（thread_source=subagent），
+    # 或纯自动评审会话（只有 auto-review 轮次、无用户主模型轮次）。
+    # 这些不是用户发起的交互，计入统计会污染会话数/模型分布/并行检测。
+    is_internal = (getattr(s, "thread_source", None) == "subagent"
+                   or (auto_review_turns > 0 and not models))
     # 活跃时长：事件间隔求和，单段 gap 封顶 15 分钟。跨天/跨周 resume 的会话
     # 用首尾跨度会严重虚高（一个会话挂一周 = 168h），聚合统计应使用本值。
     all_ts = sorted(ev["ts"] for ev in s.events if ev["ts"])
@@ -549,6 +562,9 @@ def compute_meta(s: ParsedSession, src_mtime):
         "agent": s.agent,
         "session_id": s.session_id,
         "source": s.source,
+        "thread_source": getattr(s, "thread_source", None),
+        "is_internal": is_internal,
+        "auto_review_turns": auto_review_turns,
         "project_path": s.project_path,
         "start_time": iso(s.start),
         "end_time": iso(s.end),
@@ -676,7 +692,9 @@ def main():
     cutoff_iso = ""
     if args.days > 0:
         cutoff_iso = iso(datetime.now(timezone.utc) - timedelta(days=args.days))
-    substantive = [m for m in metas if m["user_message_count"] >= 2 and m["duration_minutes"] >= 1]
+    substantive = [m for m in metas if m["user_message_count"] >= 2 and m["duration_minutes"] >= 1
+                   and not m.get("is_internal")]
+    internal_count = sum(1 for m in metas if m.get("is_internal"))
     in_window = [m for m in substantive if m["start_time"] >= cutoff_iso]
     in_window.sort(key=lambda m: m["start_time"], reverse=True)
     candidates = in_window[:args.max_facets]
@@ -732,6 +750,7 @@ def main():
         "parsed_now": loaded - failed,
         "parse_failed_or_meta": failed,
         "facet_window_days": args.days,
+        "internal_sessions_excluded": internal_count,
         "substantive_total": len(substantive),
         "substantive_in_window": len(in_window),
         "facet_candidates": len(candidates),

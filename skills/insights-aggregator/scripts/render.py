@@ -158,6 +158,8 @@ def main():
     multi_tool = len(by_agent) > 1
     window = agg.get("window") or {}
     window_label = f"近 {window['days']} 天" if window.get("days") else "全部历史"
+    n_internal = agg.get("internal_sessions_excluded") or 0
+    internal_note = f" · 已排除 {n_internal} 个子代理/自动评审会话" if n_internal else ""
 
     # ---- 顶部统计 ----
     stats = [
@@ -517,7 +519,7 @@ def main():
 <style>{css}</style></head>
 <body><div class="container">
 <h1>Agent 使用洞察报告</h1>
-<div class="subtitle">{esc(agents_label)} · {esc(window_label)}（{esc(c['date_range'].get('start'))} 至 {esc(c['date_range'].get('end'))}） · 生成于 {date.today().isoformat()}</div>
+<div class="subtitle">{esc(agents_label)} · {esc(window_label)}（{esc(c['date_range'].get('start'))} 至 {esc(c['date_range'].get('end'))}）{esc(internal_note)} · 生成于 {date.today().isoformat()}</div>
 <div class="nav-toc">{toc_html}</div>
 <div class="stats-row">{stats_html}</div>
 {glance_html}

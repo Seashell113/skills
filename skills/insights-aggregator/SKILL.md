@@ -104,6 +104,7 @@ python3 {skill_dir}/scripts/render.py
 - Claude 的 `/command` 本地执行记录（`<command-name>`、`<local-command-stdout>` 等）不计入人类消息。
 - Codex 工具报错统计豁免 `rg`/`grep`/`diff`/`test` 等命令的退出码 1（无匹配/有差异是预期语义，不算失败），避免报错数虚高误导摩擦分析。
 - 跨工具项目对齐用路径尾部两段作为键（同一项目在不同根路径下也能关联接力）。
+- **内部会话过滤**：Codex 的 spawn_agent 子会话（`thread_source=subagent`）和纯自动评审会话（仅 `codex-auto-review` 轮次）标记为 `is_internal`，统计/facet/并行检测默认排除并在报告中单独计数——否则会话数、low 档位占比和"并行多开"信号都会被内部执行拓扑严重虚高。混在用户会话里的 auto-review 轮次也不计入模型/强度分布。旧版本 Codex 会话无 `thread_source` 字段，保守按用户会话处理。
 - facet 提示词新增 `user_instructions_to_agent`（源码类型里有但从未填充），用于支撑 CLAUDE.md/AGENTS.md 配置建议。
 - 跨工具部分（overlap 区分跨工具并行、同项目 45 分钟接力检测、项目×工具矩阵、`tool_comparison` 与 `cross_tool_workflows` 两个 section、at_a_glance 的 `tool_division`）为本 skill 新增能力。
 

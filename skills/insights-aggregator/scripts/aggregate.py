@@ -339,6 +339,12 @@ def build_context(agg, facets):
     lines.append("- Session summaries 每行带 [agent|model|effort|active_min] 标签：请结合任务内容评估"
                  "**任务-模型/推理强度匹配度**——重点找两类错配：简单任务用了过高推理强度（浪费时间），"
                  "复杂任务用了弱模型或过低强度（返工风险）。")
+    n_internal = agg.get("internal_sessions_excluded") or 0
+    if n_internal:
+        b = agg.get("internal_breakdown") or {}
+        lines.append(f"- 已排除 {n_internal} 个**内部会话**（spawn_agent 子代理 {b.get('subagent', 0)} 个、"
+                     f"自动评审 {b.get('auto_review', 0)} 个）：它们不是用户发起的交互，"
+                     "所有统计均只反映用户主会话。但'大量使用子代理/自动评审'本身是值得在叙事中提及的工作方式信号。")
 
     lines.append("\n## Session summaries")
     for s in c["session_summaries"]:
@@ -388,7 +394,7 @@ def main():
 
     facets_by_key = {(f["agent"], f["session_id"]): f for f in facets_raw if f.get("session_id")}
 
-    # substantive + warmup 过滤（与源码一致）
+    # substantive + warmup + 内部会话过滤
     def is_minimal(m):
         f = facets_by_key.get((m["agent"], m["session_id"]))
         if not f:
@@ -396,8 +402,12 @@ def main():
         cats = [k for k, v in (f.get("goal_categories") or {}).items() if v > 0]
         return cats == ["warmup_minimal"]
 
+    # 内部会话（spawn_agent 子会话 / 纯自动评审）单独计数后排除：
+    # 它们不是用户发起的交互，会虚高会话数、low 档位占比和"并行多开"信号
+    internal = [m for m in metas if m.get("is_internal")]
     metas = [m for m in metas
-             if m["user_message_count"] >= 2 and m["duration_minutes"] >= 1
+             if not m.get("is_internal")
+             and m["user_message_count"] >= 2 and m["duration_minutes"] >= 1
              and not is_minimal(m)]
     # 分支/重复去重（同 agent+session_id 保留人类消息最多者）
     best = {}
@@ -413,6 +423,11 @@ def main():
     agg = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "window": {"days": args.days, "cutoff": cutoff_iso[:10] if cutoff_iso else None},
+        "internal_sessions_excluded": len(internal),
+        "internal_breakdown": {
+            "subagent": sum(1 for m in internal if m.get("thread_source") == "subagent"),
+            "auto_review": sum(1 for m in internal if m.get("thread_source") != "subagent"),
+        },
         "combined": aggregate_group(metas, facets_by_key),
         "by_agent": {agent: aggregate_group([m for m in metas if m["agent"] == agent], facets_by_key)
                      for agent in sorted({m["agent"] for m in metas})},
@@ -434,6 +449,7 @@ def main():
 
     print(json.dumps({
         "sessions_after_filter": len(metas),
+        "internal_sessions_excluded": len(internal),
         "by_agent": {a: g["total_sessions"] for a, g in agg["by_agent"].items()},
         "facets_used": len(used_facets),
         "cross_tool_overlap_events": agg["cross_tool"]["overlap"]["cross_tool_overlap_events"],
