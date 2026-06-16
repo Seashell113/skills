@@ -5,3 +5,6 @@
 
 # Claude Code local config
 .claude/
+
+# Local workspace archive
+.workspace/
