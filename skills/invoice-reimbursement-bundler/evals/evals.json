@@ -1,0 +1,44 @@
+{
+  "skill_name": "invoice-reimbursement-bundler",
+  "evals": [
+    {
+      "id": 1,
+      "name": "scan-total-and-duplicates",
+      "prompt": "请扫描 /tmp/invoice-test/ 目录下的发票 PDF，告诉我一共有多少张发票、总额是多少、有没有重复发票号、哪些文件无法解析。",
+      "expected_output": "调用 scan 命令输出 JSON，包含发票总数、总额、重复发票号列表和无法解析文件列表。",
+      "files": [],
+      "expectations": [
+        "使用 scripts/invoice_bundle.py scan 读取目录",
+        "报告发票总数和金额总和",
+        "按发票号检测并报告重复",
+        "不静默跳过无法解析的 PDF"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "bundle-target-3000",
+      "prompt": "从 /tmp/invoice-test/ 的发票里帮我凑一个 3000 元的报销组合，先不要移动文件，只输出选中哪些票、合计金额、超出多少。",
+      "expected_output": "调用 bundle --target 3000 计算组合，返回选中发票、未选中发票、合计金额、超出金额，且不改动文件。",
+      "files": [],
+      "expectations": [
+        "默认只预览不移动文件",
+        "组合总额不低于目标金额",
+        "优先选择超出金额最小的组合",
+        "输出中包含选中票、未选中票、合计金额和超出金额"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "rebundle-with-prior-result-dir",
+      "prompt": "我之前的报销目录 /tmp/invoice-test/报销3000_3000.00/ 里还有票没用完，现在和 /tmp/invoice-test/ 里剩下的票一起重新拼一个 2500 元的报销单，复制到新目录。",
+      "expected_output": "把已有报销目录和剩余票目录一起作为 --inputs 输入，重新计算并复制到新结果目录。",
+      "files": [],
+      "expectations": [
+        "接受多个输入目录，包括已有报销目录",
+        "把已有报销目录中的票视为可继续使用",
+        "使用 copy 模式生成新的结果目录",
+        "执行后校验结果目录合计金额"
+      ]
+    }
+  ]
+}
