@@ -1,7 +1,7 @@
 # Seashell's Skills
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Skills](https://img.shields.io/badge/skills-7-brightgreen.svg)](#skill-清单)
+[![Skills](https://img.shields.io/badge/skills-8-brightgreen.svg)](#skill-清单)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-orange.svg)](CONTRIBUTING.md)
 
 可复用的 AI Agent 技能（Skill）集合，面向 Claude Code、Codex 以及其他支持技能机制的 Agent 工具。
@@ -16,6 +16,7 @@ Skill 是给 AI Agent 读的能力说明书：每个技能以一份 `SKILL.md` �
 
 | Skill | 说明 | 适用范围 |
 | --- | --- | --- |
+| [codex-thread-organizer](skills/codex-thread-organizer/) | 维护 Codex 会话标题、收口摘要、handoff 和回溯索引 | 个人工作流 |
 | [human-html-artifact](skills/human-html-artifact/) | 将复杂 Markdown 或多文档材料转为自包含 HTML 阅读页 | 通用 |
 | [invoice-reimbursement-bundler](skills/invoice-reimbursement-bundler/) | 扫描、查重、组合发票 PDF，生成报销目录 | 通用（需 Python 3 + pdfplumber） |
 | [tech-plan-pairing](skills/tech-plan-pairing/) | 技术方案结对制定，从模糊问题多轮收敛到可落地方案 | 通用 |
