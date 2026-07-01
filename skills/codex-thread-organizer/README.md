@@ -18,6 +18,17 @@
 
 常见触发词包括：`codex-thread-organizer`、`codex-threads`、`codex-thread-namer`、`先重命名本会话`、`按命名规则收口`、`整理会话标题`。
 
+推荐使用短命令入口：
+
+| 命令 | 用途 |
+| --- | --- |
+| `codex-thread-organizer:init` | 初始化当前会话为常驻线程命名管理器 |
+| `codex-thread-organizer:rename` | 只处理当前或指定线程重命名 |
+| `codex-thread-organizer:handoff` | 只生成下一会话 handoff |
+| `codex-thread-organizer:closeout` | 组合执行命名、五行摘要、必要 handoff 和归档建议 |
+
+别名 `codex-thread-namer:*` 等价可用。
+
 **不适合**：项目 README/AGENTS/docs 归位、代码修改、业务文档治理；这些应使用对应项目或知识管理 skill。
 
 ## 前置条件
@@ -36,15 +47,26 @@ npx skills add https://github.com/Seashell113/skills.git -g --skill codex-thread
 ## 使用示例
 
 ```text
-按命名规则收口这个会话
+codex-thread-organizer:init
 ```
 
 ```text
-整理团队skills最近的PKM/Subagent会话标题，先预览再改
+codex-thread-organizer:rename
+根据当前任务内容重命名本会话。
 ```
 
 ```text
-给这组PKM历史会话生成一个索引
+codex-thread-organizer:handoff
+只生成下一会话交接提示，不改名。
+```
+
+```text
+codex-thread-organizer:closeout
+按命名规则收口当前会话；如有待完成或待确认事项，给出 handoff。
+```
+
+```text
+整理团队skills最近的PKM/Subagent会话标题，先预览再改。
 ```
 
 ## 目录说明

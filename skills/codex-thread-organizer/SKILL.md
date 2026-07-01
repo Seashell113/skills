@@ -1,7 +1,7 @@
 ---
 name: codex-thread-organizer
 description: |-
-  Organize Codex threads for long-running or split workflows. Use when the user asks to rename Codex sessions/threads, apply a thread naming convention, close out the current thread, produce a short thread summary, create or update handoff prompts, build an index of related threads, identify historical/test/archive candidates, or says phrases like "先重命名本会话", "按命名规则收口这个会话", "整理最近会话标题", "整理团队skills最近PKM会话", "给这组会话生成索引", "检查哪些会话该归档", "codex-threads", or "codex-thread-namer". Do not use for code changes, repository documentation, or project knowledge management unless the task is specifically about Codex thread organization.
+  Organize Codex threads for long-running or split workflows. Use when the user asks to rename Codex sessions/threads, apply a thread naming convention, close out the current thread, produce a short thread summary, create or update handoff prompts, build an index of related threads, identify historical/test/archive candidates, or says phrases like "codex-thread-organizer:init", "codex-thread-organizer:rename", "codex-thread-organizer:handoff", "codex-thread-organizer:closeout", "先重命名本会话", "按命名规则收口这个会话", "整理最近会话标题", "整理团队skills最近PKM会话", "给这组会话生成索引", "检查哪些会话该归档", "codex-threads", or "codex-thread-namer". Do not use for code changes, repository documentation, or project knowledge management unless the task is specifically about Codex thread organization.
 ---
 
 # Codex Thread Organizer
@@ -19,6 +19,56 @@ Organize Codex threads so related work remains easy to scan and recover after th
 - Do not use subagents for thread organization.
 - Treat `codex-threads`, `codex-thread-namer`, `thread organizer`, `会话命名 skill`, and `线程整理 skill` as aliases for this skill when the request is about Codex thread naming or closeout.
 
+## Command Interface
+
+Treat short commands as explicit tool-like entrypoints. Prefer these commands over inferring intent from loose wording:
+
+- `codex-thread-organizer:init` or `codex-thread-namer:init`: initialize the current thread as a long-lived thread naming manager.
+- `codex-thread-organizer:rename` or `codex-thread-namer:rename`: rename the current thread or a specified target thread. If no title is provided, infer one from the current task and related thread context.
+- `codex-thread-organizer:handoff` or `codex-thread-namer:handoff`: produce only the next-thread handoff prompt, with enough context for continuation. Do not rename unless explicitly requested in the same command.
+- `codex-thread-organizer:closeout` or `codex-thread-namer:closeout`: close out a Codex session/thread by applying the naming rules, producing the five-line summary, and producing a handoff when pending or unconfirmed items remain.
+
+For command-style calls, report the command result directly:
+
+```text
+command:
+thread tools:
+rename:
+temporary title:
+handoff:
+missing evidence:
+```
+
+Omit fields that do not apply. Keep the response concise.
+
+### Manager Init
+
+When the user invokes `:init`, initialize the current thread as the thread naming manager:
+
+1. Try to rename the thread to `[索引] 线程命名管理器`.
+2. Output the operating rules below as the pinned/long-lived usage guide.
+3. Do not perform batch rename work during init unless the user explicitly asks.
+
+Manager usage guide:
+
+```text
+这是常驻 Codex 线程命名管理器，只处理 Codex 会话/线程标题、收口、索引、归档建议和失败补救。
+
+常用命令：
+- codex-thread-organizer:rename：重命名当前线程或指定线程。
+- codex-thread-organizer:handoff：只生成下一会话 handoff。
+- codex-thread-organizer:closeout：收口当前会话，包含命名、五行摘要和必要 handoff。
+- 批量预览：扫描最近 N 天未规范命名的会话，先预览，不要改。
+- 确认应用：只应用预览中确定项，跳过不确定项。
+
+规则：
+- 批量改名前默认先预览。
+- 连续主线编号取最高编号 + 1，不填补缺号。
+- 区分主线、测试、安装、回归、临时验证。
+- 自动评审、审批、automation 线程默认跳过或单独标注。
+- 线程工具不可用时，输出建议标题、线程 ID 和待补动作，不直接写本地数据库。
+```
+
 ## Preflight Rename
 
 When the user explicitly asks to rename before continuing, handle the title before the main task.
@@ -27,6 +77,12 @@ When the user explicitly asks to rename before continuing, handle the title befo
 - If the user only says "先处理会话名" or "先重命名本会话", stop after the rename result unless they also ask to continue.
 - If the rename cannot be completed, report the failure class, the best temporary or suggested title, and whether continuing is safe under the user's wording.
 - Do not bury a rename failure inside a long task report.
+
+For `:rename`, do only the rename operation and the minimum evidence report. Do not produce a closeout summary, handoff, archive suggestion, or batch preview unless the user asks for them.
+
+For `:handoff`, do only the continuation prompt. Include the current topic, completed state, decisions/evidence, pending or unconfirmed items, and the next recommended first action. Do not rename or archive unless explicitly requested.
+
+Use `:closeout` when the user wants the combined operation: naming, five-line summary, necessary handoff, and archive recommendation.
 
 ## Naming Patterns
 
