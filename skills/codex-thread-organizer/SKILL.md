@@ -47,6 +47,8 @@ Omit fields that do not apply. Keep the response concise.
 
 When the user invokes `:init`, initialize the current thread as the thread naming manager:
 
+Prefer initializing this manager in a projectless/general Codex conversation, then pinning that conversation. If the current thread is project-bound, still treat the manager as cross-project by default; do not limit future scans to the current cwd unless the user says "current project" or gives an explicit cwd.
+
 1. Try to rename the thread to `[索引] 线程命名管理器`.
 2. Output the operating rules below as the pinned/long-lived usage guide.
 3. Do not perform batch rename work during init unless the user explicitly asks.
@@ -65,6 +67,7 @@ Manager usage guide:
 
 规则：
 - 批量改名前默认先预览。
+- 默认跨所有可见 Codex 线程扫描；只有明确说当前项目/当前工作区时才限制到当前 cwd。
 - 连续主线编号取最高编号 + 1，不填补缺号。
 - 区分主线、测试、安装、回归、临时验证。
 - 自动评审、审批、automation 线程默认跳过或单独标注。
@@ -82,7 +85,7 @@ When the user explicitly asks to rename before continuing, handle the title befo
 
 For `:rename`, do only the rename operation and the minimum evidence report. Do not produce a closeout summary, handoff, archive suggestion, or batch preview unless the user asks for them.
 
-For `:scan`, produce a preview table only. Include thread id, current title, project/cwd, classification, reason, proposed title, confidence, and recommended action (`rename`, `skip`, `archive-candidate`, or `needs-review`). Never rename, archive, pin, create, fork, or message threads during `:scan`.
+For `:scan`, default to all visible Codex threads, filtered by any user-provided time range, project name, cwd, keyword, or category. Limit to the current cwd only when the user explicitly says "current project", "current workspace", or provides the current cwd as the scan scope. Produce a preview table only. Include thread id, current title, project/cwd, classification, reason, proposed title, confidence, and recommended action (`rename`, `skip`, `archive-candidate`, or `needs-review`). Never rename, archive, pin, create, fork, or message threads during `:scan`.
 
 For `:handoff`, do only the continuation prompt. Include the current topic, completed state, decisions/evidence, pending or unconfirmed items, and the next recommended first action. Do not rename or archive unless explicitly requested.
 

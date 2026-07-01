@@ -30,6 +30,8 @@
 
 别名 `codex-thread-namer:*` 等价可用。
 
+建议在 projectless 普通对话中执行 `codex-thread-organizer:init`，再把该对话置顶，作为跨项目线程命名管理器。若在项目线程中初始化，后续扫描仍默认跨所有可见 Codex 线程；只有明确写“当前项目/当前工作区”时才限制到当前 cwd。
+
 **不适合**：项目 README/AGENTS/docs 归位、代码修改、业务文档治理；这些应使用对应项目或知识管理 skill。
 
 ## 前置条件
@@ -53,7 +55,7 @@ codex-thread-organizer:init
 
 ```text
 codex-thread-organizer:scan
-扫描最近 2 天未规范命名的 PKM/Subagent 会话，先预览，不要改。
+扫描所有可见线程最近 2 天未规范命名的 PKM/Subagent 会话，先预览，不要改。
 ```
 
 ```text
