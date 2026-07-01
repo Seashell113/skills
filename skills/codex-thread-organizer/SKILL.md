@@ -1,7 +1,7 @@
 ---
 name: codex-thread-organizer
 description: |-
-  Organize Codex threads for long-running or split workflows. Use when the user asks to rename Codex sessions/threads, apply a thread naming convention, close out the current thread, produce a short thread summary, create or update handoff prompts, build an index of related threads, identify historical/test/archive candidates, or says phrases like "按命名规则收口这个会话", "整理最近会话标题", "整理团队skills最近PKM会话", "给这组会话生成索引", or "检查哪些会话该归档". Do not use for code changes, repository documentation, or project knowledge management unless the task is specifically about Codex thread organization.
+  Organize Codex threads for long-running or split workflows. Use when the user asks to rename Codex sessions/threads, apply a thread naming convention, close out the current thread, produce a short thread summary, create or update handoff prompts, build an index of related threads, identify historical/test/archive candidates, or says phrases like "先重命名本会话", "按命名规则收口这个会话", "整理最近会话标题", "整理团队skills最近PKM会话", "给这组会话生成索引", "检查哪些会话该归档", "codex-threads", or "codex-thread-namer". Do not use for code changes, repository documentation, or project knowledge management unless the task is specifically about Codex thread organization.
 ---
 
 # Codex Thread Organizer
@@ -17,6 +17,16 @@ Organize Codex threads so related work remains easy to scan and recover after th
 - Prefer a preview before batch renaming. Rename directly only when the user explicitly asks to do so or the current request already confirms the naming rule and target set.
 - Do not archive, pin, create, fork, or message threads unless the user explicitly asks or confirms a proposed action.
 - Do not use subagents for thread organization.
+- Treat `codex-threads`, `codex-thread-namer`, `thread organizer`, `会话命名 skill`, and `线程整理 skill` as aliases for this skill when the request is about Codex thread naming or closeout.
+
+## Preflight Rename
+
+When the user explicitly asks to rename before continuing, handle the title before the main task.
+
+- If the user says "先重命名本会话，然后继续", attempt the rename first, report whether it completed, then continue the main task.
+- If the user only says "先处理会话名" or "先重命名本会话", stop after the rename result unless they also ask to continue.
+- If the rename cannot be completed, report the failure class, the best temporary or suggested title, and whether continuing is safe under the user's wording.
+- Do not bury a rename failure inside a long task report.
 
 ## Naming Patterns
 
@@ -45,20 +55,62 @@ Choose the category from the user's domain language, such as `PKM`, `Subagent`, 
 
 Use numbering for a continuous mainline where ordering matters. Do not force numbering for tests, installs, one-off checks, or side investigations.
 
+For numbered mainlines, first search related threads in the same category and project context when thread tools are available. Parse existing titles that match `[CategoryNN] ...`, take the highest `NN`, then use `NN + 1`. Do not fill gaps. If existing titles include `[PKM00]`, `[PKM01]`, `[PKM03]`, and `[PKM08]`, the next title is `[PKM09] ...`, not `[PKM02] ...`.
+
+## Recent Context Classification
+
+For single-thread closeout, use recent related threads to decide whether the current thread is a mainline, test, install check, regression, or temporary validation.
+
+Classification priority:
+
+1. User-explicit category or naming intent.
+2. Recent same-project, same-batch, or same-category thread patterns.
+3. Current thread purpose and constraints.
+4. Whether the current thread produced real file changes.
+
+Do not classify a thread as a formal mainline only because it produced real file changes. If recent related threads show an isolation test, clean-state regression, multi-repo init comparison, limited-input trial, or install consistency check, prefer a test/install/regression title.
+
+Example: if recent same-project threads include `[PKM测试] 初始化` and `[PKM测试] 隔离验证`, and the current thread says "only use the current repo", "do not read memory", or "do not read external paths", name it like `[PKM测试] 知识入口初始化` even if it wrote `README.md`, `AGENTS.md`, or `CLAUDE.md`. Use `[PKM] 知识入口初始化` only when the user frames the work as official project deposition, pre-submit organization, continuous governance mainline, or when there is no test/regression context.
+
 ## Single-Thread Closeout
 
 When the user asks to close out or maintain the current thread:
 
-1. Inspect the current thread context if thread tools are available.
-2. Propose or set a title using the naming patterns.
-3. Produce a summary in five lines or fewer:
+1. Confirm the skill is handling the request, then inspect the current thread context if thread tools are available.
+2. Search same-category, same-project, and same-keyword recent threads to classify the current thread as mainline, test, install, regression, or temporary validation. Compute a number only after confirming it belongs to a numbered mainline.
+3. Propose or set a title using the naming patterns.
+4. Produce a summary in five lines or fewer:
    - topic
    - completed work
    - key decisions or evidence
    - remaining follow-up
    - next entry point
-4. Produce a concise handoff prompt when the work should continue in a new thread.
-5. State whether archiving is recommended. Do not archive without confirmation.
+5. Produce a concise handoff prompt when the work should continue in a new thread.
+6. State whether archiving is recommended. Do not archive without confirmation.
+
+## Thread Tools And Failures
+
+Treat `No handler registered for tool: ...` from visible thread tools as a temporary host/tool-handler failure, not as a naming-rule failure and not as evidence that the skill did not trigger.
+
+Prefer host-provided thread tools for listing, reading, and renaming. Do not default to directly writing local Codex databases such as `state_5.sqlite`; use local metadata only as diagnostic evidence or for a user-approved manual recovery path.
+
+Failure classes:
+
+- Tool absent: the host does not expose thread management. Provide title suggestions, summary, and handoff only.
+- Handler unavailable: a visible tool returns `No handler registered for tool: ...`. Retry discovery or listing once if available.
+- Permission denied: report that rename is blocked by approval or permission; do not work around it silently.
+- List succeeds but set fails: compute and show the exact intended title, but say it was not applied.
+- Set succeeds but verification is unavailable: say the rename request was sent, but the final title could not be verified.
+- Related history unavailable: do not assign a mainline number.
+
+When a thread tool handler is unavailable:
+
+1. Retry tool discovery or listing once if that capability is available.
+2. If thread tools still fail, read `CODEX_THREAD_ID` when available to identify the current thread.
+3. If related thread history cannot be read, do not invent a numbered title. Use an unnumbered temporary title such as `[PKM] 入口语义收敛` and say the number is pending until thread tools recover.
+4. Report what is missing, usually the related thread set needed to compute `highest number + 1`.
+
+If a previous closeout used an unnumbered temporary title because tools failed, and tools later recover or the user asks to fix it, search related threads again. If the current thread is part of a numbered mainline, directly apply the computed `[CategoryNN] Main work` title.
 
 ## Batch Organization
 
@@ -99,4 +151,5 @@ If the user asks for automation:
 - Use Chinese by default.
 - Be concise and operational.
 - For batch changes, list the final titles and note any intentional exclusions.
+- For closeout, distinguish skill triggered, thread tools available, rename actually completed, whether the title is temporary, and what evidence is missing when numbering cannot be computed.
 - When relying on uncertain thread evidence, say what was inspected and keep the recommendation provisional.
