@@ -23,6 +23,7 @@
 | 命令 | 用途 |
 | --- | --- |
 | `codex-thread-organizer:init` | 初始化当前会话为常驻线程命名管理器 |
+| `codex-thread-organizer:scan` | 批量扫描最近或指定范围线程，只输出预览 |
 | `codex-thread-organizer:rename` | 只处理当前或指定线程重命名 |
 | `codex-thread-organizer:handoff` | 只生成下一会话 handoff |
 | `codex-thread-organizer:closeout` | 组合执行命名、五行摘要、必要 handoff 和归档建议 |
@@ -51,6 +52,11 @@ codex-thread-organizer:init
 ```
 
 ```text
+codex-thread-organizer:scan
+扫描最近 2 天未规范命名的 PKM/Subagent 会话，先预览，不要改。
+```
+
+```text
 codex-thread-organizer:rename
 根据当前任务内容重命名本会话。
 ```
@@ -66,7 +72,7 @@ codex-thread-organizer:closeout
 ```
 
 ```text
-整理团队skills最近的PKM/Subagent会话标题，先预览再改。
+确认应用上一次 scan 预览中的确定项，跳过 needs-review。
 ```
 
 ## 目录说明
