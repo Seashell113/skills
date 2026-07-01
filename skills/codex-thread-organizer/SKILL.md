@@ -85,7 +85,7 @@ When the user asks to close out or maintain the current thread:
    - key decisions or evidence
    - remaining follow-up
    - next entry point
-5. Produce a concise handoff prompt when the work should continue in a new thread.
+5. Produce a concise handoff prompt when the work should continue in a new thread. If the user explicitly says "收口" and there are pending or unconfirmed items, always provide a handoff prompt.
 6. State whether archiving is recommended. Do not archive without confirmation.
 
 ## Thread Tools And Failures
