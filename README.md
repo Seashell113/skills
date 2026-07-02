@@ -16,6 +16,7 @@ Skill 是给 AI Agent 读的能力说明书：每个技能以一份 `SKILL.md` �
 
 | Skill | 说明 | 适用范围 |
 | --- | --- | --- |
+| [codex-thread-organizer](skills/codex-thread-organizer/) | 维护 Codex 会话标题、收口摘要、handoff 和回溯索引 | 个人工作流 |
 | [human-html-artifact](skills/human-html-artifact/) | 将复杂 Markdown 或多文档材料转为自包含 HTML 阅读页 | 通用 |
 | [codex-quota-inspector](skills/codex-quota-inspector/) | 只读查询本机 Codex 普通额度和 ChatGPT 免费重置机会，脱敏输出结果 | 通用（需 Python 3） |
 | [invoice-reimbursement-bundler](skills/invoice-reimbursement-bundler/) | 扫描、查重、组合发票 PDF，生成报销目录 | 通用（需 Python 3 + pdfplumber） |
@@ -34,6 +35,17 @@ Skill 是给 AI Agent 读的能力说明书：每个技能以一份 `SKILL.md` �
 公开清单只列出适合复用或参考的 skills；少量个人环境专用目录仅用于多设备同步，不作为公开推荐。多数自研技能目录内的 `README.md` 有面向使用者的详细介绍（前置条件、使用示例、目录说明）。第三方固定快照以保留上游目录为优先，来源和更新规则见 `docs/contributing/`。
 
 ## Skill 简介与示例
+
+### codex-thread-organizer
+
+整理 Codex 会话标题、收口摘要、交接包和回溯索引。适合长期主题被拆成多个线程后，快速区分主线、测试、安装、回归和历史会话。
+
+示例：
+
+```text
+codex-thread-organizer:closeout
+按命名规则收口这个会话，并给出下一会话交接包
+```
 
 ### human-html-artifact
 

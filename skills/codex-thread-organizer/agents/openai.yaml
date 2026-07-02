@@ -1,0 +1,7 @@
+interface:
+  display_name: "Codex Thread Organizer"
+  short_description: "整理 Codex 会话标题、收口摘要和索引"
+  default_prompt: "Use $codex-thread-organizer to close out this thread with a concise title, summary, and handoff prompt."
+
+policy:
+  allow_implicit_invocation: true
