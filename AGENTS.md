@@ -13,7 +13,9 @@
 - 每个 skill 目录内的 `README.md` 面向人类使用者；修改 skill 行为后检查它是否需要同步更新。
 - 不要把全局 Agent 规则、当前会话指令或用户长期偏好整段复制进单个 skill；skill 只沉淀该能力本身可复用的触发、流程和边界。
 - 新增或明显改造 skill 前，先安装并触发仓库内的 `skill-creator`，用它完成意图澄清、真实测试 prompt、评测或人工审阅口径；轻量文案修补可按影响面缩小验证。
-- 新增自研 skill 时从 `templates/skill-template/` 起步；新增或重命名 skill 时，同步更新根 `README.md` 的 skill 清单。
+- 新增自研 skill 时从 `templates/skill-template/` 起步；新增或重命名 skill 后，先判断它是否适合公开复用或参考，再决定是否更新根 `README.md`。
+- 适合公开复用或参考的 skill，需要同步更新根 `README.md` 的公开清单、`public_skills` 徽章计数、`Skill 简介与示例` 和必要安装/依赖说明；不要只加表格一行。
+- 个人环境专用或仅用于多设备同步的 skill 可以保留在 `skills/` 下，但不要写入根 `README.md` 的公开清单、公开示例或徽章计数。
 - `skills/skill-creator/` 是第三方固定上游快照，不写入个人仓库定制规则；版本和更新流程维护在 `docs/contributing/skill-creator-upstream.md`。
 - 默认保持 skill 最小结构；只有真实需要时才增加 `scripts/`、`references/`、`templates/`、`assets/`、`evals/`、`tests/`。
 - 带 `scripts/` 的 skill 按代码变更处理，需要关注副作用、凭据读取、文件写入和跨平台行为。
