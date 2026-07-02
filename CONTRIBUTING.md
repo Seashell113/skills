@@ -4,7 +4,7 @@
 
 ## 目录规范
 
-每个 skill 独占 `skills/<skill-name>/` 目录，结构约定：
+每个 skill 独占 `skills/<skill-name>/` 目录。自研 skill 结构约定：
 
 | 路径 | 必需 | 用途 |
 | --- | --- | --- |
@@ -15,6 +15,8 @@
 | `prompts/` | 可选 | 子 agent 提示词模板 |
 | `assets/` | 可选 | 命令模板、文档模板等静态材料 |
 | `evals/` | 可选 | 触发与行为评估用例 |
+
+第三方固定快照可以保留上游原始目录结构，不强行补齐本仓库自研 skill 的 `README.md` 或模板文件；来源、许可证、固定版本和更新规则应放在 `docs/contributing/`。
 
 ## SKILL.md 编写要求
 
@@ -38,6 +40,8 @@ description: <触发条件描述：什么任务、什么关键词、什么场景
 
 ## 新增 skill 流程
 
+新增或明显改造 skill 前，先安装并触发本仓库内的 `skill-creator`，用它完成意图澄清、真实测试 prompt、评测或人工审阅口径。轻量文案修补可按影响面缩小验证，但仍需保证触发描述和目录清单一致。
+
 1. 复制 [`templates/skill-template/`](templates/skill-template/) 到 `skills/<skill-name>/`
 2. 填写 `SKILL.md` 和 `README.md`，按需添加 `references/`、`scripts/` 等
 3. 在根 `README.md` 的 Skill 清单表格中追加一行（含适用范围标注），并更新徽章中的 skill 数量
@@ -48,8 +52,12 @@ description: <触发条件描述：什么任务、什么关键词、什么场景
 ## 验证要求
 
 - **文档改动**：检查文档内链接、路径与当前目录一致；根 `README.md` 清单与 `skills/` 目录实际一致
+- **可发现性变更**：运行 `npx skills add . --list`
+- **单个 skill 变更**：至少安装到一个目标 agent 验证，例如 `npx skills add . -g -a codex --skill <skill-name> -y`；如不适合安装，说明原因
 - **脚本改动**：运行该 skill 自带的测试或验证命令（如 `weekly-report-summary` 的 `pytest tests/`），或最小可复现实例
 - **触发描述改动**：如有 `evals/`，对照评估用例确认正反触发场景仍然成立
+
+带 `scripts/` 的 skill 按代码变更处理，评审时需要关注副作用、凭据读取、文件写入、网络访问和跨平台行为。
 
 ## 提交约定
 
