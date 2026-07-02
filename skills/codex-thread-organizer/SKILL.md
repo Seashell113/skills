@@ -91,6 +91,18 @@ For `:handoff`, do only the continuation prompt. Include the current topic, comp
 
 Use `:closeout` when the user wants the combined operation: naming, five-line summary, necessary handoff, and archive recommendation.
 
+## Delegated Thread Renames
+
+When a thread is created or continued from another thread, keep the source thread and target thread separate.
+
+- Treat `source_thread_id` as provenance only. Never use it as the rename target unless the user explicitly asks to rename the source thread.
+- When renaming a newly created thread, target only the `threadId` returned by `create_thread`.
+- Before calling `set_thread_title` for a delegated or newly created thread, confirm the target explicitly in reasoning or output: `target thread id = <created thread id>` and `target title = <title>`.
+- Do not use "current thread" or "current session" to mean a newly created thread. Use the explicit thread id.
+- If the created thread reports a title mismatch, correct only that created thread id. Do not rename the source, manager, or calling thread as part of the same action.
+- If the target thread id cannot be confirmed, do not rename. Output the suggested title and the missing id evidence.
+- If both the source thread and created thread need titles, handle them as two separate rename actions and report both ids.
+
 ## Naming Patterns
 
 Use these patterns:
