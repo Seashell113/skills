@@ -1,7 +1,7 @@
 # Seashell's Skills
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Public Skills](https://img.shields.io/badge/public_skills-7-brightgreen.svg)](#skill-清单)
+[![Public Skills](https://img.shields.io/badge/public_skills-8-brightgreen.svg)](#skill-清单)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-orange.svg)](CONTRIBUTING.md)
 
 可复用的 AI Agent 技能（Skill）集合，面向 Claude Code、Codex 以及其他支持技能机制的 Agent 工具。
@@ -17,6 +17,7 @@ Skill 是给 AI Agent 读的能力说明书：每个技能以一份 `SKILL.md` �
 | Skill | 说明 | 适用范围 |
 | --- | --- | --- |
 | [human-html-artifact](skills/human-html-artifact/) | 将复杂 Markdown 或多文档材料转为自包含 HTML 阅读页 | 通用 |
+| [codex-quota-inspector](skills/codex-quota-inspector/) | 只读查询本机 Codex 普通额度和 ChatGPT 免费重置机会，脱敏输出结果 | 通用（需 Python 3） |
 | [invoice-reimbursement-bundler](skills/invoice-reimbursement-bundler/) | 扫描、查重、组合发票 PDF，生成报销目录 | 通用（需 Python 3 + pdfplumber） |
 | [skill-creator](skills/skill-creator/) | 创建、改造、评估和优化 skill 的标准流程与配套脚本 | 通用（第三方固定快照，需 Python 3.10+） |
 | [tech-plan-pairing](skills/tech-plan-pairing/) | 技术方案结对制定，从模糊问题多轮收敛到可落地方案 | 通用 |
@@ -42,6 +43,16 @@ Skill 是给 AI Agent 读的能力说明书：每个技能以一份 `SKILL.md` �
 
 ```text
 把这份 MR review 整理成一个给团队评审用的 HTML 页面
+```
+
+### codex-quota-inspector
+
+只读查询本机 Codex 普通额度、5 小时/7 天窗口和 ChatGPT 免费重置机会。适合需要快速了解当前额度状态，同时避免泄露 `access_token`、`refresh_token`、`account_id` 等敏感值的场景。
+
+示例：
+
+```text
+帮我查一下当前 Codex 额度和免费重置机会，注意不要输出任何 token 或 account_id
 ```
 
 ### invoice-reimbursement-bundler
