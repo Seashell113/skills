@@ -16,7 +16,7 @@
 - 给拆分到多个会话的长期事项生成索引。
 - 标注测试、安装核对、历史会话和归档候选。
 
-常见触发词包括：`codex-thread-organizer`、`codex-threads`、`codex-thread-namer`、`先重命名本会话`、`按命名规则收口`、`整理会话标题`。
+常见触发词包括：`codex-thread-organizer`、`codex-threads`、`先重命名本会话`、`按命名规则收口`、`整理会话标题`。
 
 推荐使用短命令入口：
 
@@ -27,8 +27,6 @@
 | `codex-thread-organizer:rename` | 只处理当前或指定线程重命名 |
 | `codex-thread-organizer:handoff` | 只生成下一会话 handoff |
 | `codex-thread-organizer:closeout` | 组合执行命名、五行摘要、必要 handoff 和归档建议 |
-
-别名 `codex-thread-namer:*` 等价可用。
 
 建议在 projectless 普通对话中执行 `codex-thread-organizer:init`，再把该对话置顶，作为跨项目线程命名管理器。若在项目线程中初始化，后续扫描仍默认跨所有可见 Codex 线程；只有明确写“当前项目/当前工作区”时才限制到当前 cwd。
 

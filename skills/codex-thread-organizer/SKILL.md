@@ -1,7 +1,7 @@
 ---
 name: codex-thread-organizer
 description: |-
-  Organize Codex threads for long-running or split workflows. Use when the user asks to rename Codex sessions/threads, apply a thread naming convention, close out the current thread, produce a short thread summary, create or update handoff prompts, build an index of related threads, identify historical/test/archive candidates, or says phrases like "codex-thread-organizer:init", "codex-thread-organizer:scan", "codex-thread-organizer:rename", "codex-thread-organizer:handoff", "codex-thread-organizer:closeout", "先重命名本会话", "按命名规则收口这个会话", "整理最近会话标题", "整理团队skills最近PKM会话", "给这组会话生成索引", "检查哪些会话该归档", "codex-threads", or "codex-thread-namer". Do not use for code changes, repository documentation, or project knowledge management unless the task is specifically about Codex thread organization.
+  Organize Codex threads for long-running or split workflows. Use when the user asks to rename Codex sessions/threads, apply a thread naming convention, close out the current thread, produce a short thread summary, create or update handoff prompts, build an index of related threads, identify historical/test/archive candidates, or says phrases like "codex-thread-organizer:init", "codex-thread-organizer:scan", "codex-thread-organizer:rename", "codex-thread-organizer:handoff", "codex-thread-organizer:closeout", "先重命名本会话", "按命名规则收口这个会话", "整理最近会话标题", "整理团队skills最近PKM会话", "给这组会话生成索引", "检查哪些会话该归档", or "codex-threads". Do not use for code changes, repository documentation, or project knowledge management unless the task is specifically about Codex thread organization.
 ---
 
 # Codex Thread Organizer
@@ -17,17 +17,17 @@ Organize Codex threads so related work remains easy to scan and recover after th
 - Prefer a preview before batch renaming. Rename directly only when the user explicitly asks to do so or the current request already confirms the naming rule and target set.
 - Do not archive, pin, create, fork, or message threads unless the user explicitly asks or confirms a proposed action.
 - Do not use subagents for thread organization.
-- Treat `codex-threads`, `codex-thread-namer`, `thread organizer`, `会话命名 skill`, and `线程整理 skill` as aliases for this skill when the request is about Codex thread naming or closeout.
+- Treat `codex-threads`, `thread organizer`, `会话命名 skill`, and `线程整理 skill` as aliases for this skill when the request is about Codex thread naming or closeout.
 
 ## Command Interface
 
 Treat short commands as explicit tool-like entrypoints. Prefer these commands over inferring intent from loose wording:
 
-- `codex-thread-organizer:init` or `codex-thread-namer:init`: initialize the current thread as a long-lived thread naming manager.
-- `codex-thread-organizer:scan` or `codex-thread-namer:scan`: scan recent or queried threads and produce a rename/archive preview only. Do not apply changes.
-- `codex-thread-organizer:rename` or `codex-thread-namer:rename`: rename the current thread or a specified target thread. If no title is provided, infer one from the current task and related thread context.
-- `codex-thread-organizer:handoff` or `codex-thread-namer:handoff`: produce only the next-thread handoff prompt, with enough context for continuation. Do not rename unless explicitly requested in the same command.
-- `codex-thread-organizer:closeout` or `codex-thread-namer:closeout`: close out a Codex session/thread by applying the naming rules, producing the five-line summary, and producing a handoff when pending or unconfirmed items remain.
+- `codex-thread-organizer:init`: initialize the current thread as a long-lived thread naming manager.
+- `codex-thread-organizer:scan`: scan recent or queried threads and produce a rename/archive preview only. Do not apply changes.
+- `codex-thread-organizer:rename`: rename the current thread or a specified target thread. If no title is provided, infer one from the current task and related thread context.
+- `codex-thread-organizer:handoff`: produce only the next-thread handoff prompt, with enough context for continuation. Do not rename unless explicitly requested in the same command.
+- `codex-thread-organizer:closeout`: close out a Codex session/thread by applying the naming rules, producing the five-line summary, and producing a handoff when pending or unconfirmed items remain.
 
 For command-style calls, report the command result directly:
 
