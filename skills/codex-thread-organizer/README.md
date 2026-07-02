@@ -26,7 +26,7 @@
 | `codex-thread-organizer:scan` | 批量扫描最近或指定范围线程，只输出预览 |
 | `codex-thread-organizer:rename` | 只处理当前或指定线程重命名 |
 | `codex-thread-organizer:handoff` | 只生成下一会话 handoff |
-| `codex-thread-organizer:closeout` | 组合执行命名、五行摘要、必要 handoff 和归档建议 |
+| `codex-thread-organizer:closeout` | 组合执行命名、五行摘要、必要 handoff，并询问是否新开 |
 
 建议在 projectless 普通对话中执行 `codex-thread-organizer:init`，再把该对话置顶，作为跨项目线程命名管理器。若在项目线程中初始化，后续扫描仍默认跨所有可见 Codex 线程；只有明确写“当前项目/当前工作区”时才限制到当前 cwd。
 
@@ -39,6 +39,7 @@
 - 自动重命名依赖宿主提供 thread tools。CLI 或其他宿主没有重命名工具时，skill 只能给出建议标题和收口信息。
 - 不默认直接写入本地 Codex 数据库；本地元数据只用于诊断或用户明确批准的人工恢复。
 - 分派或新建线程时，只会改 `create_thread` 返回的目标线程；来源线程 `source_thread_id` 仅作为来源证据，除非用户另行明确要求，不会顺手改名。
+- `handoff` / `closeout` 默认先在旧会话生成完整交接包；只有用户确认“直接新开”后，才会创建下一会话。
 
 ## 安装
 
@@ -69,7 +70,7 @@ codex-thread-organizer:handoff
 
 ```text
 codex-thread-organizer:closeout
-按命名规则收口当前会话；如有待完成或待确认事项，给出 handoff。
+按命名规则收口当前会话；如有待完成或待确认事项，先给出 handoff 包，再询问是否直接新开。
 ```
 
 ```text

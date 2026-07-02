@@ -27,7 +27,7 @@ Treat short commands as explicit tool-like entrypoints. Prefer these commands ov
 - `codex-thread-organizer:scan`: scan recent or queried threads and produce a rename/archive preview only. Do not apply changes.
 - `codex-thread-organizer:rename`: rename the current thread or a specified target thread. If no title is provided, infer one from the current task and related thread context.
 - `codex-thread-organizer:handoff`: produce only the next-thread handoff prompt, with enough context for continuation. Do not rename unless explicitly requested in the same command.
-- `codex-thread-organizer:closeout`: close out a Codex session/thread by applying the naming rules, producing the five-line summary, and producing a handoff when pending or unconfirmed items remain.
+- `codex-thread-organizer:closeout`: close out a Codex session/thread by applying the naming rules, producing the five-line summary, producing a handoff package when pending or unconfirmed items remain, and asking whether to create the next thread when that would help.
 
 For command-style calls, report the command result directly:
 
@@ -38,6 +38,7 @@ scan scope:
 rename:
 temporary title:
 handoff:
+create next thread:
 missing evidence:
 ```
 
@@ -62,7 +63,7 @@ Manager usage guide:
 - codex-thread-organizer:rename：重命名当前线程或指定线程。
 - codex-thread-organizer:scan：扫描最近或指定范围会话，只输出预览，不改名。
 - codex-thread-organizer:handoff：只生成下一会话 handoff。
-- codex-thread-organizer:closeout：收口当前会话，包含命名、五行摘要和必要 handoff。
+- codex-thread-organizer:closeout：收口当前会话，包含命名、五行摘要、必要 handoff，并询问是否直接新开。
 - 确认应用：只应用预览中确定项，跳过不确定项。
 
 规则：
@@ -87,9 +88,32 @@ For `:rename`, do only the rename operation and the minimum evidence report. Do 
 
 For `:scan`, default to all visible Codex threads, filtered by any user-provided time range, project name, cwd, keyword, or category. Limit to the current cwd only when the user explicitly says "current project", "current workspace", or provides the current cwd as the scan scope. Produce a preview table only. Include thread id, current title, project/cwd, classification, reason, proposed title, confidence, and recommended action (`rename`, `skip`, `archive-candidate`, or `needs-review`). Never rename, archive, pin, create, fork, or message threads during `:scan`.
 
-For `:handoff`, do only the continuation prompt. Include the current topic, completed state, decisions/evidence, pending or unconfirmed items, and the next recommended first action. Do not rename or archive unless explicitly requested.
+For `:handoff`, do only the handoff package. Include the continuation prompt plus any important source materials, changed files, commands, validation state, pending or unconfirmed items, and the next recommended first action. Do not rename, create, or archive unless explicitly requested.
 
 Use `:closeout` when the user wants the combined operation: naming, five-line summary, necessary handoff, and archive recommendation.
+
+## Handoff Package And Thread Creation
+
+Generate the handoff from the source thread first. The source thread usually has the best context and can produce a cleaner continuation prompt than a newly created thread.
+
+For closeout or handoff with unfinished work:
+
+1. Complete the handoff package in the source thread before creating any new thread.
+2. Include the next-thread prompt, required files or artifacts, current state, decisions, validation evidence, pending questions, and the first action for the next thread.
+3. If important handoff material belongs in the repository or another durable artifact, write or update that artifact before final closeout when the user has authorized file edits.
+4. Ask the user whether to create the next thread after the handoff package is complete.
+5. Create the next thread only when the user explicitly confirms, such as "新开", "直接开", "帮我创建", or "继续到新会话".
+
+Do not make `create_thread` part of default `:handoff` or `:closeout`. The default output is a ready-to-use handoff prompt and a confirmation question. Creating the thread is an optional follow-up action.
+
+Create the next thread without a second confirmation only when the user has already explicitly asked to create or dispatch a new thread in the same request, or when the task is a real Desktop new-thread test rather than a handoff closeout.
+
+When creating a next thread after confirmation:
+
+- Use the source thread's handoff package as the initial prompt, trimmed to the minimum necessary continuation context.
+- Keep the new thread's first prompt self-contained enough to work without rereading the source thread.
+- Apply the delegated rename rules below: source thread and new thread titles are separate actions.
+- Report the created thread id and whether it has been renamed.
 
 ## Delegated Thread Renames
 
