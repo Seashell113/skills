@@ -107,7 +107,27 @@ Skill 是给 AI Agent 读的能力说明书：每个技能以一份 `SKILL.md` �
 
 ## 安装
 
-### 方式一：npx skills（推荐）
+### 方式一：让 Agent 辅助安装（推荐）
+
+最推荐的方式是直接让当前 Agent 帮你安装或更新。这样 Agent 可以根据你的工具环境选择合适的目标 agent，执行安装命令，并把结果和失败原因反馈给你。
+
+示例：
+
+```text
+请帮我从 https://github.com/Seashell113/skills.git 安装 human-html-artifact skill
+```
+
+```text
+请先列出 https://github.com/Seashell113/skills.git 里可安装的 skills，再帮我安装 tech-plan-pairing
+```
+
+```text
+请帮我更新这个仓库里已经安装过的 skills
+```
+
+Agent 通常会在后台使用 `npx skills add ...` 完成安装。你可以要求它先列出计划和命令，再确认执行。
+
+### 方式二：npx skills
 
 查看可安装的技能：
 
@@ -135,7 +155,7 @@ npx skills list -g
 
 更新时重新执行对应的 `npx skills add ...` 命令即可。
 
-### 方式二：手动复制
+### 方式三：手动复制
 
 把整个技能目录复制到 Agent 工具的技能目录，例如 Claude Code：
 
