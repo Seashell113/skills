@@ -1,7 +1,7 @@
 # Seashell's Skills
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Skills](https://img.shields.io/badge/skills-7-brightgreen.svg)](#skill-清单)
+[![Skills](https://img.shields.io/badge/skills-8-brightgreen.svg)](#skill-清单)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-orange.svg)](CONTRIBUTING.md)
 
 可复用的 AI Agent 技能（Skill）集合，面向 Claude Code、Codex 以及其他支持技能机制的 Agent 工具。
@@ -18,6 +18,7 @@ Skill 是给 AI Agent 读的能力说明书：每个技能以一份 `SKILL.md` �
 | --- | --- | --- |
 | [human-html-artifact](skills/human-html-artifact/) | 将复杂 Markdown 或多文档材料转为自包含 HTML 阅读页 | 通用 |
 | [invoice-reimbursement-bundler](skills/invoice-reimbursement-bundler/) | 扫描、查重、组合发票 PDF，生成报销目录 | 通用（需 Python 3 + pdfplumber） |
+| [skill-creator](skills/skill-creator/) | 创建、改造、评估和优化 skill 的标准流程与配套脚本 | 通用（第三方固定快照，需 Python 3.10+） |
 | [tech-plan-pairing](skills/tech-plan-pairing/) | 技术方案结对制定，从模糊问题多轮收敛到可落地方案 | 通用 |
 | [project-knowledge-manager](skills/project-knowledge-manager/) | 项目知识沉淀、目录规范化、信息归位和文档审计 | 通用 |
 | [insights-aggregator](skills/insights-aggregator/) | 汇总 Claude Code 与 Codex 本地会话，生成跨工具使用洞察 HTML 报告 | 通用（需 Python 3） |
@@ -30,7 +31,7 @@ Skill 是给 AI Agent 读的能力说明书：每个技能以一份 `SKILL.md` �
 - **团队定制**：审查口径、输出结构按特定团队习惯设计，可借用框架后按需调整。
 - **特定环境**：依赖特定服务或私有约定（如企业邮箱、内部模板），更适合作为参考实现。
 
-每个技能目录内的 `README.md` 有面向使用者的详细介绍（前置条件、使用示例、目录说明）。
+多数自研技能目录内的 `README.md` 有面向使用者的详细介绍（前置条件、使用示例、目录说明）。第三方固定快照以保留上游目录为优先，来源和更新规则见 `docs/contributing/`。
 
 ## 安装
 
@@ -93,6 +94,8 @@ skills/
 ├── LICENSE                    # MIT
 ├── CONTRIBUTING.md            # 贡献指南与 skill 编写规范
 ├── AGENTS.md                  # Agent 修改本仓库时的约束
+├── docs/
+│   └── contributing/          # 贡献流程、第三方快照来源和更新规则
 ├── templates/
 │   └── skill-template/        # 新 skill 起步模板
 └── skills/
@@ -112,4 +115,4 @@ skills/
 
 ## License
 
-[MIT](LICENSE)
+本仓库自研内容默认使用 [MIT](LICENSE)。第三方固定快照保留其目录内自带许可证；例如 `skills/skill-creator/` 随目录保留 Apache License 2.0 的 `LICENSE.txt`。
