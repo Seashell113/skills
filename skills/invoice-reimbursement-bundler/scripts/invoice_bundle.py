@@ -22,6 +22,7 @@ import re
 import shutil
 import sys
 from collections import defaultdict
+from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Iterable, NamedTuple
@@ -32,6 +33,7 @@ import pdfplumber
 class Invoice(NamedTuple):
     invoice_no: str
     amount: Decimal
+    purchaser_title: str | None
     path: Path
     source_dir: Path
 
@@ -39,6 +41,7 @@ class Invoice(NamedTuple):
 class ParseResult(NamedTuple):
     invoice_no: str | None
     amount: Decimal | None
+    purchaser_title: str | None
 
 
 # ---------------------------------------------------------------------------
@@ -56,6 +59,13 @@ _AMOUNT_PATTERNS = [
     re.compile(r"价税合计\s*[¥￥]?\s*([\d,]+\.?\d{0,2})"),
     # 作为兜底，查找 "合计" 后的金额，但尽量避开纯数字行号
     re.compile(r"合\s*计\s*(?:[^\n\r]{0,30}?)\s*[¥￥]\s*([\d,]+\.?\d{0,2})"),
+]
+
+_PURCHASER_TITLE_PATTERNS = [
+    # 数电票常见提取结果：购 名称：某公司 销 名称：某公司
+    re.compile(r"购\s*名称\s*[：:]\s*(.+?)\s+销\s*名称\s*[：:]"),
+    re.compile(r"购买方(?:信息)?\s*名称\s*[：:]\s*(.+?)(?:\s+销售方|\n)"),
+    re.compile(r"购买方名称\s*[：:]\s*(.+?)(?:\n|$)"),
 ]
 
 
@@ -81,15 +91,21 @@ def _normalize_amount(raw: str) -> Decimal | None:
         return None
 
 
+def _normalize_title(raw: str) -> str | None:
+    """统一抬头空白和尾部标点，空值返回 None。"""
+    title = re.sub(r"\s+", "", raw).strip("：:；;,，")
+    return title or None
+
+
 def parse_invoice(path: Path) -> ParseResult:
-    """解析单张 PDF 发票，返回（发票号，金额）。解析失败字段为 None。"""
+    """解析单张 PDF 发票，返回发票号、金额和购买方抬头。"""
     try:
         text = _extract_text_from_pdf(path)
     except Exception:
-        return ParseResult(None, None)
+        return ParseResult(None, None, None)
 
     if not text or not text.strip():
-        return ParseResult(None, None)
+        return ParseResult(None, None, None)
 
     invoice_no: str | None = None
     for pat in _INVOICE_NO_PATTERNS:
@@ -106,7 +122,15 @@ def parse_invoice(path: Path) -> ParseResult:
             if amount is not None:
                 break
 
-    return ParseResult(invoice_no, amount)
+    purchaser_title: str | None = None
+    for pat in _PURCHASER_TITLE_PATTERNS:
+        m = pat.search(text)
+        if m:
+            purchaser_title = _normalize_title(m.group(1))
+            if purchaser_title:
+                break
+
+    return ParseResult(invoice_no, amount, purchaser_title)
 
 
 def _is_pdf(path: Path) -> bool:
@@ -132,6 +156,7 @@ def scan_directories(dirs: Iterable[Path]) -> tuple[list[Invoice], list[Path]]:
                 Invoice(
                     invoice_no=parsed.invoice_no,
                     amount=parsed.amount,
+                    purchaser_title=parsed.purchaser_title,
                     path=path,
                     source_dir=d,
                 )
@@ -244,6 +269,68 @@ def _path_list(raw: str) -> list[Path]:
     return [Path(p).expanduser().resolve() for p in raw.split(",") if p.strip()]
 
 
+def _title_summary(
+    invoices: Iterable[Invoice], expected_title: str | None = None
+) -> dict:
+    """按购买方抬头分类，并在指定抬头时给出匹配统计。"""
+    expected = _normalize_title(expected_title) if expected_title else None
+    grouped: dict[str, list[Invoice]] = defaultdict(list)
+    unresolved: list[Invoice] = []
+
+    for inv in invoices:
+        if inv.purchaser_title:
+            grouped[inv.purchaser_title].append(inv)
+        else:
+            unresolved.append(inv)
+
+    groups = []
+    for title, items in sorted(grouped.items()):
+        total = sum((inv.amount for inv in items), Decimal("0.00"))
+        groups.append(
+            {
+                "title": title,
+                "count": len(items),
+                "total": f"{total:.2f}",
+                "paths": [str(inv.path) for inv in items],
+            }
+        )
+
+    result = {
+        "expected_title": expected,
+        "groups": groups,
+        "unresolved_count": len(unresolved),
+        "unresolved_paths": [str(inv.path) for inv in unresolved],
+    }
+    if expected:
+        matched = [inv for inv in invoices if inv.purchaser_title == expected]
+        mismatched = [inv for inv in invoices if inv.purchaser_title != expected]
+        result.update(
+            {
+                "matched_count": len(matched),
+                "matched_total": f"{sum((inv.amount for inv in matched), Decimal('0.00')):.2f}",
+                "mismatched_count": len(mismatched),
+                "mismatched_paths": [str(inv.path) for inv in mismatched],
+            }
+        )
+    return result
+
+
+def _invoice_json(inv: Invoice, expected_title: str | None = None) -> dict:
+    expected = _normalize_title(expected_title) if expected_title else None
+    return {
+        "invoice_no": inv.invoice_no,
+        "amount": f"{inv.amount:.2f}",
+        "purchaser_title": inv.purchaser_title,
+        "title_match": inv.purchaser_title == expected if expected else None,
+        "path": str(inv.path),
+    }
+
+
+def _target_dir_label(target: Decimal) -> str:
+    normalized = format(target, "f").rstrip("0").rstrip(".")
+    return normalized or "0"
+
+
 def cmd_scan(args: argparse.Namespace) -> int:
     inputs = _path_list(args.inputs)
     invoices, unparsable = scan_directories(inputs)
@@ -263,12 +350,9 @@ def cmd_scan(args: argparse.Namespace) -> int:
             no: [str(p) for p in paths] for no, paths in sorted(duplicate_nos.items())
         },
         "unparsable": [str(p) for p in unparsable],
+        "title_check": _title_summary(invoices, args.title),
         "invoices": [
-            {
-                "invoice_no": inv.invoice_no,
-                "amount": f"{inv.amount:.2f}",
-                "path": str(inv.path),
-            }
+            _invoice_json(inv, args.title)
             for inv in sorted(invoices, key=lambda x: (x.source_dir, x.path.name))
         ],
     }
@@ -294,20 +378,52 @@ def cmd_bundle(args: argparse.Namespace) -> int:
             seen_nos.add(inv.invoice_no)
             unique_invoices.append(inv)
 
-    solution = _solve_subset(unique_invoices, target)
+    title_check = _title_summary(unique_invoices, args.title)
+    expected_title = _normalize_title(args.title) if args.title else None
+    if expected_title:
+        eligible_invoices = [
+            inv for inv in unique_invoices if inv.purchaser_title == expected_title
+        ]
+        excluded_by_title = [
+            inv for inv in unique_invoices if inv.purchaser_title != expected_title
+        ]
+    else:
+        eligible_invoices = unique_invoices
+        excluded_by_title = []
+
+    title_groups = title_check["groups"]
+    needs_title_confirmation = (
+        not expected_title
+        and not args.allow_mixed_titles
+        and (len(title_groups) > 1 or title_check["unresolved_count"] > 0)
+    )
+
+    solution = None if needs_title_confirmation else _solve_subset(eligible_invoices, target)
 
     result: dict = {
         "inputs": [str(p) for p in inputs],
         "target": f"{target:.2f}",
         "invoice_count": len(invoices),
         "unique_count": len(unique_invoices),
+        "eligible_count": len(eligible_invoices),
         "duplicate_files": [str(p) for p in duplicate_files],
         "unparsable": [str(p) for p in unparsable],
+        "title_check": title_check,
+        "excluded_by_title": [_invoice_json(inv, args.title) for inv in excluded_by_title],
         "solved": solution is not None,
     }
 
+    if needs_title_confirmation:
+        result["title_confirmation_required"] = True
+        result["message"] = (
+            "检测到多个抬头或无法识别抬头的发票；请用 --title 指定抬头，"
+            "或明确允许后使用 --allow-mixed-titles。"
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 4
+
     if solution is None:
-        available = sum((inv.amount for inv in unique_invoices), Decimal("0.00"))
+        available = sum((inv.amount for inv in eligible_invoices), Decimal("0.00"))
         result["available_total"] = f"{available:.2f}"
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 1
@@ -318,19 +434,11 @@ def cmd_bundle(args: argparse.Namespace) -> int:
     result.update(
         {
             "selected": [
-                {
-                    "invoice_no": inv.invoice_no,
-                    "amount": f"{inv.amount:.2f}",
-                    "path": str(inv.path),
-                }
+                _invoice_json(inv, args.title)
                 for inv in selected
             ],
             "unselected": [
-                {
-                    "invoice_no": inv.invoice_no,
-                    "amount": f"{inv.amount:.2f}",
-                    "path": str(inv.path),
-                }
+                _invoice_json(inv, args.title)
                 for inv in unselected
             ],
             "selected_count": len(selected),
@@ -342,11 +450,12 @@ def cmd_bundle(args: argparse.Namespace) -> int:
     if args.apply:
         output_root = Path(args.output_root).expanduser().resolve()
         output_root.mkdir(parents=True, exist_ok=True)
-        result_dir = output_root / f"报销{int(target)}_{total:.2f}"
+        date_label = datetime.now().astimezone().date().isoformat()
+        base_name = f"{date_label}_{_target_dir_label(target)}元_{len(selected)}张"
+        result_dir = output_root / base_name
         if result_dir.exists():
             # 若已存在，追加计数避免覆盖。
             counter = 1
-            base_name = f"报销{int(target)}_{total:.2f}"
             while result_dir.exists():
                 result_dir = output_root / f"{base_name}_{counter}"
                 counter += 1
@@ -411,6 +520,10 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
         help="输入目录，多个用逗号分隔（支持中文路径）",
     )
+    scan_parser.add_argument(
+        "--title",
+        help="期望的购买方抬头；未指定时按扫描结果自动分类",
+    )
 
     bundle_parser = subparsers.add_parser("bundle", help="计算最优组合或执行打包")
     bundle_parser.add_argument(
@@ -429,15 +542,24 @@ def main(argv: list[str] | None = None) -> int:
         help="结果目录根路径，默认当前目录",
     )
     bundle_parser.add_argument(
+        "--title",
+        help="只使用匹配该购买方抬头的发票；未指定时按扫描结果分类",
+    )
+    bundle_parser.add_argument(
+        "--allow-mixed-titles",
+        action="store_true",
+        help="明确允许混用不同抬头或无法识别抬头的发票",
+    )
+    bundle_parser.add_argument(
         "--apply",
         action="store_true",
         help="实际复制或移动文件；否则仅输出组合方案",
     )
     bundle_parser.add_argument(
         "--mode",
-        default="copy",
+        default="move",
         choices=["copy", "move"],
-        help="apply 时的操作方式，默认 copy",
+        help="apply 时的操作方式，默认 move；如需保留选中源文件可指定 copy",
     )
 
     args = parser.parse_args(argv)

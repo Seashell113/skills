@@ -5,12 +5,13 @@
       "id": 1,
       "name": "scan-total-and-duplicates",
       "prompt": "请扫描 /tmp/invoice-test/ 目录下的发票 PDF，告诉我一共有多少张发票、总额是多少、有没有重复发票号、哪些文件无法解析。",
-      "expected_output": "调用 scan 命令输出 JSON，包含发票总数、总额、重复发票号列表和无法解析文件列表。",
+      "expected_output": "调用 scan 命令输出 JSON，包含发票总数、总额、重复发票号、购买方抬头分类和无法解析文件列表。",
       "files": [],
       "expectations": [
         "使用 scripts/invoice_bundle.py scan 读取目录",
         "报告发票总数和金额总和",
         "按发票号检测并报告重复",
+        "未指定抬头时自动按购买方抬头分类",
         "不静默跳过无法解析的 PDF"
       ]
     },
@@ -38,6 +39,21 @@
         "把已有报销目录中的票视为可继续使用",
         "使用 copy 模式生成新的结果目录",
         "执行后校验结果目录合计金额"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "confirm-title-and-move",
+      "prompt": "从 /tmp/invoice-test/ 凑 2000 元，抬头必须是杭州甘之草科技股份有限公司。先给我确认组合，确认后移动到 /tmp/invoice-reported/。",
+      "expected_output": "先按指定抬头扫描和预览；用户确认后默认移动，结果目录名使用日期、目标金额和选中张数，例如 2026-07-14_2000元_10张。",
+      "files": [],
+      "expectations": [
+        "使用 --title 过滤购买方抬头",
+        "移动前展示组合并等待用户确认",
+        "确认后使用 --apply，默认 mode 为 move",
+        "目录名金额使用目标金额而非实际金额",
+        "目录名包含最终选中的发票张数",
+        "移动后重新扫描结果目录并校验金额"
       ]
     }
   ]
