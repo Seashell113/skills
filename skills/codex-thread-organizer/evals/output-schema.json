@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["command", "scope_count", "read_ids", "decisions", "renumber_preview"],
+  "properties": {
+    "command": {"type": "string"},
+    "scope_count": {"type": "integer", "minimum": 0},
+    "read_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "thread_id",
+          "action",
+          "proposed_title",
+          "category",
+          "relation_group",
+          "number",
+          "topic_confidence",
+          "category_confidence",
+          "relation_confidence",
+          "number_confidence",
+          "title_drift"
+        ],
+        "properties": {
+          "thread_id": {"type": "string"},
+          "action": {"enum": ["rename", "skip", "needs-review", "archive-candidate"]},
+          "proposed_title": {"type": ["string", "null"]},
+          "category": {"enum": ["mainline", "test", "install", "review", "regression", "temporary-validation", "automation", "system", "unknown"]},
+          "relation_group": {"type": ["string", "null"]},
+          "number": {"type": ["integer", "null"], "minimum": 1},
+          "topic_confidence": {"enum": ["high", "medium", "low"]},
+          "category_confidence": {"enum": ["high", "medium", "low"]},
+          "relation_confidence": {"enum": ["high", "medium", "low"]},
+          "number_confidence": {"enum": ["high", "medium", "low"]},
+          "title_drift": {"type": "boolean"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "renumber_preview": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["thread_id", "old_title", "proposed_title", "order_evidence"],
+        "properties": {
+          "thread_id": {"type": "string"},
+          "old_title": {"type": "string"},
+          "proposed_title": {"type": "string"},
+          "order_evidence": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

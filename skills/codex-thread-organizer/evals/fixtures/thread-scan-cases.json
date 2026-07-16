@@ -1,0 +1,253 @@
+{
+  "description": "来自真实线程整理问题的脱敏回归夹具。线程按 updated_at 从新到旧排列；bounded_read_cards 模拟 includeOutputs=false、turnLimit=3 的限量补读结果。",
+  "threads": [
+    {
+      "thread_id": "T01",
+      "title": "[周报] 个人历史归档",
+      "preview": "导出个人最近半年的周报邮件为 Markdown 归档。",
+      "cwd": "/workspace/ai/weekly-report-summary",
+      "created_at": "2026-07-16T09:40:00+08:00",
+      "updated_at": "2026-07-16T10:05:00+08:00",
+      "status": "idle"
+    },
+    {
+      "thread_id": "T02",
+      "title": "如何处理",
+      "preview": "讨论 web-ai-daily-paper 下一版如何减少低价值新闻并收敛筛选策略。",
+      "cwd": "/workspace/ai/skills",
+      "created_at": "2026-07-16T09:20:00+08:00",
+      "updated_at": "2026-07-16T10:00:00+08:00",
+      "status": "idle"
+    },
+    {
+      "thread_id": "T03",
+      "title": "[web-ai-daily-paper] 设计方案",
+      "preview": "先完成早报筛选机制设计，再决定是否实现。",
+      "cwd": "/workspace/ai/skills",
+      "created_at": "2026-07-16T08:50:00+08:00",
+      "updated_at": "2026-07-16T09:55:00+08:00",
+      "status": "idle"
+    },
+    {
+      "thread_id": "T04",
+      "title": "每日 AI/Web 简报",
+      "preview": "Automation 每天 09:00 运行，汇总最近 24 小时资讯。",
+      "cwd": "/workspace/ai/skills",
+      "created_at": "2026-07-16T09:00:00+08:00",
+      "updated_at": "2026-07-16T09:02:00+08:00",
+      "status": "automation"
+    },
+    {
+      "thread_id": "T05",
+      "title": "Auto review PR 1842",
+      "preview": "System-generated approval and review thread.",
+      "cwd": "/workspace/projects/saas-frontend",
+      "created_at": "2026-07-16T08:40:00+08:00",
+      "updated_at": "2026-07-16T08:43:00+08:00",
+      "status": "system"
+    },
+    {
+      "thread_id": "T06",
+      "title": "帮我安装钉钉 CLI 并检查版本",
+      "preview": "一次性安装 dingtalk CLI，验证命令可用后结束。",
+      "cwd": "/workspace/tools",
+      "created_at": "2026-07-16T08:15:00+08:00",
+      "updated_at": "2026-07-16T08:35:00+08:00",
+      "status": "idle"
+    },
+    {
+      "thread_id": "T07",
+      "title": "[codex-thread-organizer] 设计收敛",
+      "preview": "收敛对象优先、分层置信度和 needs-review 退出规则。",
+      "cwd": "/workspace/ai/skills",
+      "created_at": "2026-07-16T07:30:00+08:00",
+      "updated_at": "2026-07-16T08:20:00+08:00",
+      "status": "idle"
+    },
+    {
+      "thread_id": "T08",
+      "title": "[Skills] web-ai-daily-paper回归样例",
+      "preview": "只为 web-ai-daily-paper 补充真实筛选回归样例和断言。",
+      "cwd": "/workspace/ai/skills",
+      "created_at": "2026-07-16T07:10:00+08:00",
+      "updated_at": "2026-07-16T08:10:00+08:00",
+      "status": "idle"
+    },
+    {
+      "thread_id": "T09",
+      "title": "/sdd 请在 admin-mes 实现患者详情标签页拖拽，先做 clean-state 测试，不要改业务代码",
+      "preview": "通过 /sdd 路由测试标签页拖拽需求的规格识别，只验证流程，不实施。",
+      "cwd": "/workspace/projects/admin-mes",
+      "created_at": "2026-07-16T06:40:00+08:00",
+      "updated_at": "2026-07-16T07:50:00+08:00",
+      "status": "idle"
+    },
+    {
+      "thread_id": "T10",
+      "title": "继续",
+      "preview": "PKM 知识入口初始化，可能是正式落盘，也可能是隔离测试。",
+      "cwd": "/workspace/projects/unknown-admin",
+      "created_at": "2026-07-16T06:10:00+08:00",
+      "updated_at": "2026-07-16T07:35:00+08:00",
+      "status": "idle"
+    },
+    {
+      "thread_id": "T11",
+      "title": "gc-workflow 团队语义梳理",
+      "preview": "梳理团队口语到 gcw 命令的最短映射，形成第一阶段决策。",
+      "cwd": "/workspace/projects/skills",
+      "created_at": "2026-07-15T13:00:00+08:00",
+      "updated_at": "2026-07-15T14:00:00+08:00",
+      "status": "idle"
+    },
+    {
+      "thread_id": "T12",
+      "title": "gcw CLI能力对齐",
+      "preview": "承接团队语义梳理，核对 gcw 已有能力并缩短调用路径。",
+      "cwd": "/workspace/projects/skills",
+      "created_at": "2026-07-15T14:10:00+08:00",
+      "updated_at": "2026-07-15T15:30:00+08:00",
+      "status": "idle"
+    },
+    {
+      "thread_id": "T13",
+      "title": "继续上一个会话",
+      "preview": "完成 gc-workflow 回归并准备发布，来源是 CLI 能力对齐会话。",
+      "cwd": "/workspace/projects/skills",
+      "created_at": "2026-07-15T15:40:00+08:00",
+      "updated_at": "2026-07-15T17:10:00+08:00",
+      "status": "idle"
+    },
+    {
+      "thread_id": "T14",
+      "title": "PKM入口初始化",
+      "preview": "为 admin-mes 正式建立 README、AGENTS 和 CLAUDE 知识入口。",
+      "cwd": "/workspace/projects/admin-mes",
+      "created_at": "2026-07-15T10:00:00+08:00",
+      "updated_at": "2026-07-15T12:20:00+08:00",
+      "status": "idle"
+    },
+    {
+      "thread_id": "T15",
+      "title": "PKM入口初始化",
+      "preview": "在 skills 仓库做 repo-only、禁止记忆的 clean-state 初始化验证。",
+      "cwd": "/workspace/projects/skills",
+      "created_at": "2026-07-15T09:20:00+08:00",
+      "updated_at": "2026-07-15T11:50:00+08:00",
+      "status": "idle"
+    },
+    {
+      "thread_id": "T16",
+      "title": "[web-ai-daily-paper] 证据审查",
+      "preview": "从早报主线拆出的证据质量分析，只给审查结论和交接，不改实现。",
+      "cwd": "/workspace/ai/skills",
+      "created_at": "2026-07-14T17:00:00+08:00",
+      "updated_at": "2026-07-14T18:00:00+08:00",
+      "status": "idle"
+    },
+    {
+      "thread_id": "T17",
+      "title": "/Users/demo/.agents/skills/skill-creator/SKILL.md 请按这里把 README 清单弄一下，完成后告诉我",
+      "preview": "为 skill-creator 补充根 README 的公开清单、简介、示例和安装说明。",
+      "cwd": "/workspace/ai/skills",
+      "created_at": "2026-07-14T14:00:00+08:00",
+      "updated_at": "2026-07-14T16:30:00+08:00",
+      "status": "idle"
+    },
+    {
+      "thread_id": "T18",
+      "title": "[Review] API调整",
+      "preview": "审查 saas-frontend API 调整的回归风险。",
+      "cwd": "/workspace/projects/saas-frontend",
+      "created_at": "2026-07-14T11:00:00+08:00",
+      "updated_at": "2026-07-14T12:00:00+08:00",
+      "status": "idle"
+    },
+    {
+      "thread_id": "T19",
+      "title": "[Review] API调整",
+      "preview": "另一个项目的 API 调整讨论，尚不清楚是评审、实现还是临时排查。",
+      "cwd": "/workspace/projects/data-console",
+      "created_at": "2026-07-14T10:00:00+08:00",
+      "updated_at": "2026-07-14T11:30:00+08:00",
+      "status": "idle"
+    },
+    {
+      "thread_id": "T20",
+      "title": "[Skills] README清单补充",
+      "preview": "为 codex-thread-organizer 更新公开 README 清单中的简介和 scan 示例。",
+      "cwd": "/workspace/ai/skills",
+      "created_at": "2026-07-14T09:00:00+08:00",
+      "updated_at": "2026-07-14T10:20:00+08:00",
+      "status": "idle"
+    }
+  ],
+  "bounded_read_cards": {
+    "T02": {
+      "latest_user_intent": "先完成 web-ai-daily-paper 的筛选策略设计并收敛取舍。",
+      "stable_result": "形成去重、证据门槛和人工反馈闭环设计，尚未实施。",
+      "artifact_or_branch": ".workspace/web-ai-daily-paper-design.md",
+      "continuation_evidence": "无交接来源，独立设计任务。"
+    },
+    "T03": {
+      "latest_user_intent": "确认设计后直接实现、跑回归并发布当前版本。",
+      "stable_result": "代码、回归样例和发布说明均已完成。",
+      "artifact_or_branch": "skills/web-ai-daily-paper/; branch codex-web-ai-daily-paper-release",
+      "continuation_evidence": "从本线程早期设计阶段连续推进。"
+    },
+    "T06": {
+      "latest_user_intent": "完成钉钉 CLI 的一次性安装并核对版本。",
+      "stable_result": "安装和版本校验均已结束，无后续主线。",
+      "artifact_or_branch": "无持久产物",
+      "continuation_evidence": "独立一次性安装任务。"
+    },
+    "T09": {
+      "latest_user_intent": "只验证 /sdd 能否正确识别标签页拖拽需求，不修改业务代码。",
+      "stable_result": "完成 clean-state 路由测试，未产生实现提交。",
+      "artifact_or_branch": "测试记录 outputs/sdd-tab-drag.md",
+      "continuation_evidence": "一次性测试，不属于业务实现主线。"
+    },
+    "T10": {
+      "latest_user_intent": "先看看当前仓库是否适合初始化。",
+      "stable_result": "用户在正式落盘和隔离测试之间尚未确认；没有稳定终态。",
+      "artifact_or_branch": "无",
+      "continuation_evidence": "没有来源线程或连续主线证据。"
+    },
+    "T11": {
+      "latest_user_intent": "冻结 gc-workflow 的团队语义识别原则，下一会话继续核对 CLI。",
+      "stable_result": "形成团队口语映射决策并输出交接。",
+      "artifact_or_branch": ".workspace/gcw-semantics.md",
+      "continuation_evidence": "明确交接到 T12。"
+    },
+    "T12": {
+      "latest_user_intent": "承接 T11，逐项核对 gcw 能力与最短调用路径。",
+      "stable_result": "完成 CLI 能力矩阵，交接后续回归发布。",
+      "artifact_or_branch": ".workspace/gcw-capability-matrix.md",
+      "continuation_evidence": "来源 T11，明确交接到 T13。"
+    },
+    "T13": {
+      "latest_user_intent": "承接 T12，完成回归并发布 gc-workflow。",
+      "stable_result": "回归通过并发布，主线收口。",
+      "artifact_or_branch": "skills/gc-workflow/; branch codex-gcw-release",
+      "continuation_evidence": "来源 T12，与 T11/T12 为同一主线。"
+    },
+    "T15": {
+      "latest_user_intent": "只做 repo-only、无记忆的 PKM 初始化测试。",
+      "stable_result": "隔离验证结束，不作为正式项目知识治理主线。",
+      "artifact_or_branch": "临时验证输出，无提交",
+      "continuation_evidence": "与 admin-mes 的正式初始化无交接、无共享产物。"
+    },
+    "T17": {
+      "latest_user_intent": "按 skill-creator 仓库规则完善公开 README。",
+      "stable_result": "完成 skill-creator 清单、简介、示例和安装说明。",
+      "artifact_or_branch": "README.md",
+      "continuation_evidence": "一次性对象级文档任务。"
+    },
+    "T19": {
+      "latest_user_intent": "先确认 data-console 的 API 问题是什么。",
+      "stable_result": "仍在评审、实现和临时排查三种方向之间，证据冲突。",
+      "artifact_or_branch": "无",
+      "continuation_evidence": "与 saas-frontend 的同名线程无共享分支、产物或交接。"
+    }
+  }
+}

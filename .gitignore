@@ -8,3 +8,6 @@
 
 # Local workspace artifacts
 .workspace/
+
+# Local skill-creator evaluation workspaces
+skills/*-workspace/

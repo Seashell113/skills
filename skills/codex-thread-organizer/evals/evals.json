@@ -1,0 +1,34 @@
+{
+  "skill_name": "codex-thread-organizer",
+  "evals": [
+    {
+      "id": 1,
+      "name": "recent-10-adaptive-scan",
+      "prompt": "codex-thread-organizer:scan。假设 list_threads 按 updated_at 返回 FIXTURE_PATH 中的 threads，bounded_read_cards 是异常项在 includeOutputs=false、turnLimit=3 下可获得的限量补读结果。按 Skill 处理最近 10 条。不要访问真实线程，不要修改任何线程。为评测需要，把全部 10 条内部决策写入 OUTPUT_PATH，必须是纯 JSON，结构为 {command, scope_count, read_ids, decisions:[{thread_id, action, proposed_title, category, relation_group, number, topic_confidence, category_confidence, relation_confidence, number_confidence, title_drift}], renumber_preview:[]}。skip 的 proposed_title 为 null。",
+      "expected_output": "默认范围恰好 10 条；只补读 4 个异常项；Automation/系统项安全跳过；低信息冲突项进入 needs-review；对象前缀、阶段漂移和 /sdd 测试标题正确。",
+      "files": ["evals/fixtures/thread-scan-cases.json"],
+      "assertions": [
+        "默认 scan 只处理最近 10 条，而不是全部 20 条",
+        "T04 Automation 与 T05 system 均为 skip",
+        "T10 因正式主线/隔离测试冲突进入 needs-review",
+        "T02、T03、T06、T08、T09 的建议标题与期望完全一致",
+        "read_ids 只包含 T02、T03、T06、T09、T10"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "scan-all-and-unnumbered-mainline",
+      "prompt": "scan all，并同时给出 renumber gc-workflow 的预览。假设宿主可见范围就是 FIXTURE_PATH 的 20 条 threads，bounded_read_cards 是 includeOutputs=false、turnLimit=3 的限量补读结果。不要访问真实线程，不要修改任何线程。为评测需要，把全部 20 条内部决策写入 OUTPUT_PATH，必须是纯 JSON，结构为 {command, scope_count, read_ids, decisions:[{thread_id, action, proposed_title, category, relation_group, number, topic_confidence, category_confidence, relation_confidence, number_confidence, title_drift}], renumber_preview:[{thread_id, old_title, proposed_title, order_evidence}]}。skip 的 proposed_title 为 null。",
+      "expected_output": "全量范围 20 条；为未编号但连续关系明确的 gc-workflow 主线建立 01–03 序列；不同项目 PKM/Review 不误关联；2 条不确定项进入 needs-review；安全跳过 Automation/系统与已规范标题。",
+      "files": ["evals/fixtures/thread-scan-cases.json"],
+      "assertions": [
+        "T11–T13 建立同一 gc-workflow 序列并按 01、02、03 排序",
+        "T14 与 T15 因项目和任务类别不同而不串号",
+        "T18 与 T19 不因同名 Review 标题跨项目关联",
+        "T10 与 T19 进入 needs-review，其余样例自动 rename 或 skip",
+        "所有高置信 rename 标题与期望完全一致",
+        "read_ids 只包含期望的 11 个异常或关系判断项"
+      ]
+    }
+  ]
+}
