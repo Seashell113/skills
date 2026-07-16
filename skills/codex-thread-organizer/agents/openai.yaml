@@ -1,7 +1,7 @@
 interface:
   display_name: "Codex Thread Organizer"
-  short_description: "整理 Codex 会话标题、收口摘要和索引"
-  default_prompt: "Use $codex-thread-organizer to close out this thread with a concise title, summary, and handoff prompt."
+  short_description: "低成本整理 Codex 会话标题、编号与收口"
+  default_prompt: "Use $codex-thread-organizer to scan the 10 most recent visible threads, cluster lifecycle and relation candidates before skipping, use bounded output-free reads for anomalies, and preview only high-confidence renames while protecting needs-review and system threads."
 
 policy:
   allow_implicit_invocation: true

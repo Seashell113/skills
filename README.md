@@ -40,13 +40,13 @@ Skill 是给 AI Agent 读的能力说明书：每个技能以一份 `SKILL.md` �
 
 ### codex-thread-organizer
 
-整理 Codex 会话标题、收口摘要、交接包和回溯索引。适合长期主题被拆成多个线程后，快速区分主线、测试、安装、回归和历史会话。
+整理 Codex 会话标题、连续编号、收口摘要、交接包和回溯索引。默认先扫描最近 10 个线程的标题、预览和项目，只有异常项才限量补读；主题、类别、关联或编号不确定时会进入 `needs-review`。
 
 示例：
 
 ```text
-codex-thread-organizer:closeout
-按命名规则收口这个会话，并给出下一会话交接包
+scan
+先预览最近 10 个会话的高置信改名建议，跳过 Automation 和 needs-review
 ```
 
 ### human-html-artifact

@@ -1,0 +1,36 @@
+{
+  "suites": {
+    "scan": {
+      "thread_ids": ["T01", "T02", "T03", "T04", "T05", "T06", "T07", "T08", "T09", "T10"],
+      "read_ids": ["T02", "T03", "T06", "T09", "T10"]
+    },
+    "scan_all": {
+      "thread_ids": ["T01", "T02", "T03", "T04", "T05", "T06", "T07", "T08", "T09", "T10", "T11", "T12", "T13", "T14", "T15", "T16", "T17", "T18", "T19", "T20"],
+      "read_ids": ["T02", "T03", "T06", "T09", "T10", "T11", "T12", "T13", "T15", "T17", "T19"]
+    }
+  },
+  "decisions": {
+    "T01": {"action": "skip", "proposed_title": null, "category": "mainline", "relation_group": null, "number": null},
+    "T02": {"action": "rename", "proposed_title": "[web-ai-daily-paper] 设计收敛", "accepted_titles": ["[web-ai-daily-paper] 设计收敛", "[web-ai-daily-paper] 筛选策略设计"], "category": "mainline", "relation_group": null, "number": null},
+    "T03": {"action": "rename", "proposed_title": "[web-ai-daily-paper] 实现发布", "accepted_titles": ["[web-ai-daily-paper] 实现发布", "[web-ai-daily-paper] 实现发布收口"], "category": "mainline", "relation_group": null, "number": null},
+    "T04": {"action": "skip", "proposed_title": null, "category": "automation", "relation_group": null, "number": null},
+    "T05": {"action": "skip", "proposed_title": null, "category": "system", "relation_group": null, "number": null},
+    "T06": {"action": "rename", "proposed_title": "[工具安装] 钉钉CLI", "accepted_titles": ["[工具安装] 钉钉CLI", "[工具安装] 钉钉CLI版本校验", "[工具安装] 钉钉 CLI 版本校验"], "category": "install", "relation_group": null, "number": null},
+    "T07": {"action": "skip", "proposed_title": null, "category": "mainline", "relation_group": null, "number": null},
+    "T08": {"action": "rename", "proposed_title": "[web-ai-daily-paper] 回归样例补充", "category": "regression", "relation_group": null, "number": null},
+    "T09": {"action": "rename", "proposed_title": "[SDD测试] 标签页拖拽验证", "accepted_titles": ["[SDD测试] 标签页拖拽验证", "[SDD测试] 标签页拖拽路由验证", "[SDD测试] 患者详情标签页拖拽路由验证"], "category": "test", "accepted_categories": ["test", "temporary-validation"], "relation_group": null, "number": null},
+    "T10": {"action": "needs-review", "proposed_title": null, "category": "unknown", "relation_group": null, "number": null},
+    "T11": {"action": "rename", "proposed_title": "[gc-workflow01] 团队语义梳理", "accepted_titles": ["[gc-workflow01] 团队语义梳理", "[gc-workflow01] 团队语义收敛", "[gc-workflow01] 语义梳理决策"], "category": "mainline", "relation_group": "gc-workflow@projects-skills", "accepted_relation_groups": ["gc-workflow@projects-skills", "gc-workflow", "gc-workflow-mainline"], "number": 1},
+    "T12": {"action": "rename", "proposed_title": "[gc-workflow02] CLI能力对齐", "category": "mainline", "relation_group": "gc-workflow@projects-skills", "accepted_relation_groups": ["gc-workflow@projects-skills", "gc-workflow", "gc-workflow-mainline"], "number": 2},
+    "T13": {"action": "rename", "proposed_title": "[gc-workflow03] 回归与发布", "accepted_titles": ["[gc-workflow03] 回归与发布", "[gc-workflow03] 回归发布收口"], "category": "mainline", "relation_group": "gc-workflow@projects-skills", "accepted_relation_groups": ["gc-workflow@projects-skills", "gc-workflow", "gc-workflow-mainline"], "number": 3},
+    "T14": {"action": "rename", "proposed_title": "[PKM] 知识入口初始化", "category": "mainline", "relation_group": null, "number": null},
+    "T15": {"action": "rename", "proposed_title": "[PKM测试] 知识入口初始化", "accepted_titles": ["[PKM测试] 知识入口初始化", "[PKM测试] repo-only 初始化验证", "[PKM测试] clean-state 初始化验证"], "category": "test", "accepted_categories": ["test", "temporary-validation"], "relation_group": null, "number": null},
+    "T16": {"action": "skip", "proposed_title": null, "category": "review", "relation_group": null, "number": null},
+    "T17": {"action": "rename", "proposed_title": "[skill-creator] README清单补充", "accepted_titles": ["[skill-creator] README清单补充", "[skill-creator] README公开清单完善"], "category": "mainline", "relation_group": null, "number": null},
+    "T18": {"action": "skip", "proposed_title": null, "category": "review", "relation_group": null, "number": null},
+    "T19": {"action": "needs-review", "proposed_title": null, "category": "unknown", "relation_group": null, "number": null},
+    "T20": {"action": "rename", "proposed_title": "[codex-thread-organizer] README说明更新", "accepted_titles": ["[codex-thread-organizer] README说明更新", "[codex-thread-organizer] README清单补充"], "category": "mainline", "relation_group": null, "number": null}
+  },
+  "protected_ids": ["T04", "T05"],
+  "numbered_ids": ["T11", "T12", "T13"]
+}

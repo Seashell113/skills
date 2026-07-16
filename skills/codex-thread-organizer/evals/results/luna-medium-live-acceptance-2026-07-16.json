@@ -1,0 +1,103 @@
+{
+  "skill_name": "codex-thread-organizer",
+  "date": "2026-07-16",
+  "validation_type": "independent live Codex thread forward-testing with human acceptance",
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "medium",
+  "strict_exact_title_eval_used": false,
+  "expected_answers_exposed_to_execution_threads": false,
+  "mutation_policy": "iteration runs were preview-only; the final user acceptance applied only the nine confirmed high-confidence renames and archived nothing",
+  "runs": [
+    {
+      "thread_id": "019f6918-084d-7d13-9204-c13f2b95351d",
+      "scenario": "live scan 20 iteration 1",
+      "duration_seconds": 84.42,
+      "reported_bounded_reads": 9,
+      "result": "failed",
+      "finding": "Improved duplicate/index detection but missed lifecycle drift and the GCW family."
+    },
+    {
+      "thread_id": "019f691c-bffa-7e11-8590-eb49b1809db5",
+      "scenario": "live scan 20 iteration 2",
+      "duration_seconds": 101.518,
+      "reported_bounded_reads": 15,
+      "result": "failed",
+      "finding": "Caught more lifecycle verbs and all duplicate managers, but still used older evidence for some durable results and did not close the GCW family."
+    },
+    {
+      "thread_id": "019f6920-4406-7400-b577-a663b982ca8b",
+      "scenario": "live scan 20 iteration 3",
+      "duration_seconds": 86.756,
+      "reported_bounded_reads": 9,
+      "result": "partial",
+      "finding": "Correctly found web-ai-daily-paper, Vue migration, idea/index, product idea, and weekly-report lifecycle issues; family output remained incomplete."
+    },
+    {
+      "thread_id": "019f6923-ca06-7ca3-9715-dfb9d32fde72",
+      "scenario": "live renumber GCW across visible history",
+      "duration_seconds": 178.036,
+      "reported_bounded_reads": 21,
+      "result": "passed_safety_boundary",
+      "finding": "Separated Skills and gc-workflow-helper contexts and refused unsafe global numbering across a large ambiguous historical family."
+    },
+    {
+      "thread_id": "019f6923-ca06-7ca3-9715-dfb9d32fde72",
+      "scenario": "early four-thread GCW family relationship review",
+      "duration_seconds": 55.649,
+      "reported_bounded_reads": 4,
+      "result": "failed",
+      "finding": "Overweighted the latest status/handoff interaction and misclassified durable implementation ownership, leading to the durable-task versus latest-interaction correction."
+    },
+    {
+      "thread_id": "019f692b-2d44-70d1-8be8-eac11f132cdb",
+      "scenario": "four-thread GCW family relationship review",
+      "duration_seconds": 139.789,
+      "reported_bounded_reads": 6,
+      "result": "passed_safety_boundary",
+      "finding": "Distinguished implementation ownership, handoff, independent changes, and duplicate/parallel release uncertainty without forcing a sequence."
+    },
+    {
+      "thread_id": "019f692d-c47a-76b3-bda8-f0f8f28e5822",
+      "scenario": "final scoped live scan of eight anomaly candidates and two Automation threads",
+      "duration_seconds": 127.178,
+      "reported_bounded_reads": 7,
+      "result": "passed_with_minor_findings",
+      "finding": "Surfaced all eight non-protected lifecycle/title candidates, skipped both Automation threads, and identified a 01/02 handoff family. Minor count wording and cwd-prefix redundancy were corrected afterward."
+    },
+    {
+      "thread_id": "019f698e-4833-7532-825b-9f92f5af128d",
+      "scenario": "final user-run scan of the 20 most recent real threads using the globally installed skill",
+      "duration_seconds": 107.447,
+      "reported_bounded_reads": 14,
+      "result": "passed",
+      "finding": "Previewed nine high-confidence lifecycle and object-first renames, protected two Automation/system threads, kept three old manager entries as archive candidates, and forced no uncertain numbering family."
+    },
+    {
+      "thread_id": "019f698e-4833-7532-825b-9f92f5af128d",
+      "scenario": "user-confirmed application and verification of the final preview",
+      "duration_seconds": 44.301,
+      "reported_bounded_reads": 0,
+      "result": "passed",
+      "finding": "Applied and re-verified all nine confirmed renames with zero failures; no archive or needs-review item was mutated."
+    }
+  ],
+  "measured_executor_seconds_excluding_init": 925.094,
+  "token_evidence": "not available from host thread tools",
+  "tool_call_cost_evidence": "exact count not available; per-run bounded-read counts are retained above",
+  "human_acceptance": {
+    "status": "passed",
+    "final_acceptance_thread_id": "019f698e-4833-7532-825b-9f92f5af128d",
+    "final_acceptance_scope": "20 real recent threads; nine confirmed renames applied and verified; no archives",
+    "confirmed_behaviors": [
+      "object-first and index-role titles",
+      "lifecycle drift from design or intent to implementation, evaluation, or release",
+      "bounded newest-first reads without tool outputs",
+      "Automation protection",
+      "cross-project family separation",
+      "family closure or needs-review instead of forced numbering",
+      "preview-only safety"
+    ],
+    "remaining_needs_review_boundary": "Parallel, forked, or delegated threads with the same first goal remain unnumbered until direct handoff or artifact ownership establishes their role.",
+    "population_metric_claim": "not established; this is real-scenario acceptance evidence, not a statistical accuracy claim"
+  }
+}

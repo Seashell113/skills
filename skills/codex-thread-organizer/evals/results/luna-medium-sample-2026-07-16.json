@@ -1,0 +1,104 @@
+{
+  "skill_name": "codex-thread-organizer",
+  "date": "2026-07-16",
+  "baseline_commit": "814e7de",
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "medium",
+  "evaluation_type": "controlled isolated regression",
+  "holdout": false,
+  "rubric_calibrated_during_iteration": true,
+  "fixture": "evals/fixtures/thread-scan-cases.json",
+  "sample_limitations": "脱敏真实类型的定向回归样本；部分语义等价标题集合在人工审阅迭代输出后补充，因此这是回归通过证据，不是盲测或独立留出集。通过样本门槛不等于已用统计学证明总体准确率达到相同水平。",
+  "metric_definitions": {
+    "high_confidence_rename_accuracy": "预测为 high-confidence rename 的标题落入人工审阅后的可接受标题集合",
+    "automatic_coverage": "rename 或 skip 的样本数 / 总样本数",
+    "needs_review_rate": "needs-review 样本数 / 总样本数",
+    "numbering_accuracy": "连续主线编号值正确的样本数 / 编号样本数",
+    "protected_mischange_rate": "Automation/系统保护样本中未被 skip 的比例"
+  },
+  "final_comparison": {
+    "recent_10": {
+      "old_skill": {
+        "exact_decision_accuracy": 0.2,
+        "automatic_coverage": 0.9,
+        "needs_review_rate": 0.1,
+        "protected_mischange_rate": 0.0,
+        "duration_seconds": 55.05,
+        "total_tokens": 72902,
+        "tool_calls": 1
+      },
+      "improved_skill": {
+        "exact_decision_accuracy": 1.0,
+        "high_confidence_rename_accuracy": 1.0,
+        "high_confidence_rename_count": 5,
+        "automatic_coverage": 0.9,
+        "needs_review_rate": 0.1,
+        "protected_mischange_rate": 0.0,
+        "bounded_read_count": 5,
+        "duration_seconds": 61.606,
+        "duration_ratio_vs_old": 1.1191,
+        "total_tokens": 72602,
+        "tool_calls": 1
+      }
+    },
+    "scan_all_20": {
+      "old_skill": {
+        "exact_decision_accuracy": 0.1,
+        "action_accuracy": 0.9,
+        "high_confidence_rename_accuracy": 0.0,
+        "high_confidence_rename_count": 3,
+        "automatic_coverage": 0.85,
+        "needs_review_rate": 0.1,
+        "numbering_accuracy": 1.0,
+        "protected_mischange_rate": 0.0,
+        "duration_seconds": 126.795,
+        "total_tokens": 122439,
+        "tool_calls": 3
+      },
+      "improved_skill": {
+        "exact_decision_accuracy": 1.0,
+        "action_accuracy": 1.0,
+        "high_confidence_rename_accuracy": 1.0,
+        "high_confidence_rename_count": 12,
+        "automatic_coverage": 0.9,
+        "needs_review_rate": 0.1,
+        "numbering_accuracy": 1.0,
+        "numbered_samples": 3,
+        "protected_mischange_rate": 0.0,
+        "protected_samples": 2,
+        "bounded_read_count": 11,
+        "duration_seconds": 78.822,
+        "duration_ratio_vs_old": 0.6216,
+        "total_tokens": 144179,
+        "tool_calls": 2
+      }
+    }
+  },
+  "threshold_judgement": {
+    "high_confidence_rename_accuracy_at_least_0_97": "passed_on_sample",
+    "automatic_coverage_at_least_0_85": "passed_on_sample",
+    "needs_review_rate_at_most_0_15": "passed_on_sample",
+    "numbering_accuracy_at_least_0_95": "passed_on_sample",
+    "protected_mischange_near_zero": "passed_on_sample",
+    "recent_10_time_at_most_2x_baseline": "passed_on_sample",
+    "population_level_claim": "not_established"
+  },
+  "cost_evidence": {
+    "successful_runs_total": 6,
+    "successful_runs_total_tokens": 632284,
+    "successful_runs_executor_seconds_sum": 489.056,
+    "successful_runs_tool_calls": 12,
+    "final_comparison_tokens": 412122,
+    "note": "Codex CLI token totals include the host/system context and therefore overstate the incremental Skill and fixture content cost. Failed schema-compatibility probes consumed zero model tokens."
+  },
+  "needs_review_examples": [
+    {
+      "thread_id": "T10",
+      "reason": "正式 PKM 主线与隔离测试意图冲突，限量补读后仍无稳定终态"
+    },
+    {
+      "thread_id": "T19",
+      "reason": "同名跨项目线程缺少类别与连续关系证据，不能仅凭 Review/API 关键词关联"
+    }
+  ]
+}
