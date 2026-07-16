@@ -1,0 +1,160 @@
+{
+  "run_at": "2026-07-16T08:28:00+08:00",
+  "mode": "dry-run",
+  "last_success_at": "2026-07-15T08:28:00+08:00",
+  "history": [
+    {
+      "event_key": "browserco|launch|stable-api-x|2026-07-15",
+      "milestone": "announcement",
+      "reported_at": "2026-07-15T08:28:00+08:00"
+    }
+  ],
+  "candidates": [
+    {
+      "item_id": "ITEM-01",
+      "title": "CodePilot 发布企业级代码审查 Agent 2.0",
+      "url": "https://official.example/codepilot-2",
+      "topic_lane": "ai_coding",
+      "content_type": "release",
+      "event_key": "codepilot|release|review-agent-2|2026-07-16",
+      "milestone": "major_release",
+      "event_time": "2026-07-16T01:00:00+08:00",
+      "source_level": "P",
+      "is_primary": true,
+      "verified_claims": ["正式发布 2.0", "新增仓库级审查和策略配置"]
+    },
+    {
+      "item_id": "ITEM-02",
+      "title": "WebCore 142 稳定版启用 Navigation Signals API",
+      "url": "https://official.example/webcore-142",
+      "topic_lane": "web_platform",
+      "content_type": "release",
+      "event_key": "webcore|enable|navigation-signals|2026-07-16",
+      "milestone": "ga",
+      "event_time": "2026-07-16T02:00:00+08:00",
+      "source_level": "P",
+      "is_primary": true,
+      "verified_claims": ["142 稳定版默认启用该 API", "提供导航阶段信号"]
+    },
+    {
+      "item_id": "ITEM-03",
+      "title": "AI Notes 增加三个主题颜色",
+      "url": "https://official.example/ai-notes-colors",
+      "topic_lane": "ai_products",
+      "content_type": "minor_update",
+      "event_key": "ai-notes|add|theme-colors|2026-07-16",
+      "milestone": "minor_feature",
+      "event_time": "2026-07-16T03:00:00+08:00",
+      "source_level": "P",
+      "is_primary": true,
+      "verified_claims": ["新增三个主题颜色"]
+    },
+    {
+      "item_id": "ITEM-04",
+      "title": "PackageHub 披露构建插件供应链漏洞并发布修复",
+      "url": "https://security.example/packagehub-advisory",
+      "topic_lane": "security",
+      "content_type": "security_advisory",
+      "event_key": "packagehub|disclose-and-fix|build-plugin-rce|2026-07-15",
+      "milestone": "security_fix",
+      "event_time": "2026-07-15T21:00:00+08:00",
+      "source_level": "P",
+      "is_primary": true,
+      "verified_claims": ["受影响版本可被恶意插件执行代码", "官方已发布修复版本"]
+    },
+    {
+      "item_id": "ITEM-05",
+      "title": "ComponentFlow 1.0 发布",
+      "url": "https://github.example/component-flow/releases/1.0",
+      "topic_lane": "frontend_horizon",
+      "content_type": "open_source_release",
+      "event_key": "componentflow|release|1.0|2026-07-15",
+      "milestone": "ga",
+      "event_time": "2026-07-15T18:00:00+08:00",
+      "source_level": "P",
+      "is_primary": true,
+      "maintenance_signals": ["连续 8 个月活跃提交", "完整文档", "三个框架适配器"],
+      "verified_claims": ["发布 1.0", "提供跨框架可访问组件状态管理"]
+    },
+    {
+      "item_id": "ITEM-06",
+      "title": "传闻 ModelLab 将关闭开源模型下载",
+      "url": "https://social.example/unverified-post",
+      "topic_lane": "models",
+      "content_type": "rumor",
+      "event_key": "modellab|close|model-download|2026-07-16",
+      "milestone": "rumor",
+      "event_time": "2026-07-16T04:00:00+08:00",
+      "source_level": "C",
+      "is_primary": false,
+      "verified_claims": []
+    },
+    {
+      "item_id": "ITEM-07",
+      "title": "Web Components Scoped Registry 获得两套浏览器实验实现",
+      "url": "https://standards.example/scoped-registry-update",
+      "topic_lane": "frontend_horizon",
+      "content_type": "platform_progress",
+      "event_key": "web-components|implement|scoped-registry|2026-07-15",
+      "milestone": "implementation_progress",
+      "event_time": "2026-07-15T16:00:00+08:00",
+      "source_level": "P",
+      "is_primary": true,
+      "maintenance_signals": ["标准仓库状态更新", "两个独立浏览器实现"],
+      "verified_claims": ["两套浏览器实现进入实验阶段", "规范议题仍未进入稳定阶段"],
+      "initial_rank_hint": "low"
+    },
+    {
+      "item_id": "ITEM-08",
+      "title": "BrowserCo 再次介绍 Stable API X",
+      "url": "https://media.example/stable-api-x-recap",
+      "topic_lane": "web_platform",
+      "content_type": "recap",
+      "event_key": "browserco|launch|stable-api-x|2026-07-15",
+      "milestone": "announcement",
+      "event_time": "2026-07-15T10:00:00+08:00",
+      "source_level": "A",
+      "is_primary": false,
+      "verified_claims": ["复述昨日发布内容"]
+    },
+    {
+      "item_id": "ITEM-09",
+      "title": "前端团队如何设计渐进式 hydration",
+      "url": "https://engineering.example/progressive-hydration-report",
+      "topic_lane": "frontend",
+      "content_type": "practice_article",
+      "event_key": "engineering-team|publish|hydration-report|2026-07-14",
+      "milestone": "publication",
+      "event_time": "2026-07-14T12:00:00+08:00",
+      "source_level": "B",
+      "is_primary": true,
+      "verified_claims": ["公开大型站点的渐进式 hydration 实践与数据"]
+    },
+    {
+      "item_id": "ITEM-10",
+      "title": "CloudAI 完成影响行业格局的基础设施并购",
+      "url": "https://company.example/cloudai-acquisition",
+      "topic_lane": "industry",
+      "content_type": "acquisition",
+      "event_key": "cloudai|acquire|inference-grid|2026-07-15",
+      "milestone": "official_announcement",
+      "event_time": "2026-07-15T20:00:00+08:00",
+      "source_level": "P",
+      "is_primary": true,
+      "verified_claims": ["双方正式公告完成并购", "被收购方提供大规模推理基础设施"]
+    },
+    {
+      "item_id": "ITEM-11",
+      "title": "十天前的 JavaScript 工具小版本更新",
+      "url": "https://official.example/old-tool-update",
+      "topic_lane": "tooling",
+      "content_type": "minor_update",
+      "event_key": "oldtool|release|2.3|2026-07-06",
+      "milestone": "minor_release",
+      "event_time": "2026-07-06T12:00:00+08:00",
+      "source_level": "P",
+      "is_primary": true,
+      "verified_claims": ["发布 2.3 小版本"]
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "run_id": "2026-07-16T082800+0800",
+  "items": [
+    {
+      "item_id": "ITEM-01",
+      "event_key": "entity|action|product-or-version|2026-07-16",
+      "milestone": "major_release",
+      "event_time": "2026-07-16T00:00:00+08:00",
+      "published_at": "2026-07-16T00:10:00+08:00",
+      "claims": [
+        {
+          "claim_id": "CLAIM-01",
+          "text": "待核验的原子事实",
+          "verification_status": "verified",
+          "evidence_refs": ["EVIDENCE-01"]
+        }
+      ],
+      "evidence": [
+        {
+          "evidence_id": "EVIDENCE-01",
+          "url": "https://example.com/specific-page",
+          "source_name": "示例官方来源",
+          "source_level": "P",
+          "is_primary": true,
+          "published_at": "2026-07-16T00:10:00+08:00",
+          "accessed_at": "2026-07-16T08:30:00+08:00",
+          "supports_claims": ["CLAIM-01"],
+          "evidence_note": "说明该页面如何支持 claim，不复制大段正文",
+          "independent_from": []
+        }
+      ],
+      "attention_reason": {
+        "reason_type": "developer_impact",
+        "inference": "一句克制的关注理由",
+        "basis_claim_ids": ["CLAIM-01"],
+        "certainty": "inferred"
+      }
+    }
+  ]
+}

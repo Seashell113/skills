@@ -1,0 +1,29 @@
+{
+  "run_id": "2026-07-16T082800+0800",
+  "mode": "published",
+  "review_status": "passed",
+  "selected": [
+    {"item_id": "ITEM-01", "title": "CodePilot 发布企业级代码审查 Agent 2.0", "section": "今日重点", "evidence_status": "verified"},
+    {"item_id": "ITEM-02", "title": "WebCore 142 稳定版启用 Navigation Signals API", "section": "今日重点", "evidence_status": "verified"},
+    {"item_id": "ITEM-03", "title": "AI Notes 增加三个主题颜色", "section": "补充动态", "evidence_status": "verified"},
+    {"item_id": "ITEM-04", "title": "PackageHub 披露构建插件供应链漏洞并发布修复", "section": "今日重点", "evidence_status": "verified"},
+    {"item_id": "ITEM-05", "title": "ComponentFlow 1.0 发布", "section": "前端视野", "evidence_status": "verified"}
+  ],
+  "review_changes": [
+    {"action": "remove", "item_id": "ITEM-06", "reason": "个人社媒传闻，无独立证据"},
+    {"action": "promote", "item_id": "ITEM-05", "reason": "具备发布、维护和跨框架能力信号"}
+  ],
+  "rejected": [
+    {"item_id": "ITEM-07", "title": "Web Components Scoped Registry 获得两套浏览器实验实现", "reason_code": "low_editorial_value", "reason": "初选认为尚未稳定", "counterfactual": "若出现多浏览器实现或进入正式标准阶段可入选", "discovered": true},
+    {"item_id": "ITEM-08", "title": "BrowserCo 再次介绍 Stable API X", "reason_code": "duplicate_event", "reason": "昨日已报道且无新 milestone", "counterfactual": "出现 GA、兼容性变化或重大修复后可再次入选", "discovered": true},
+    {"item_id": "ITEM-09", "title": "前端团队如何设计渐进式 hydration", "reason_code": "quota_limit", "reason": "属于延伸阅读且本期新闻已满", "counterfactual": "事实新闻不足时可进入延伸阅读", "discovered": true},
+    {"item_id": "ITEM-11", "title": "十天前的 JavaScript 工具小版本更新", "reason_code": "stale", "reason": "超出窗口且不是重大事件", "counterfactual": "出现新的重大版本后作为新 milestone 评估", "discovered": true},
+    {"item_id": "ITEM-12", "title": "某 AI 创业公司 UI 改版", "reason_code": "marketing_only", "reason": "只有营销描述，没有明确能力变化", "counterfactual": "发布可核验的新产品能力后重新评估", "discovered": true},
+    {"item_id": "ITEM-13", "title": "一篇前端入门教程", "reason_code": "not_an_event", "reason": "教程，不是事件", "counterfactual": "不适用于新闻栏目；高质量时可单独评估延伸阅读", "discovered": true},
+    {"item_id": "ITEM-14", "title": "未证实的模型泄露", "reason_code": "unverified", "reason": "只有匿名社媒来源", "counterfactual": "官方确认或两家独立权威来源证实后再评估", "discovered": true},
+    {"item_id": "ITEM-15", "title": "工具补丁修复拼写", "reason_code": "low_editorial_value", "reason": "影响极低", "counterfactual": "补丁涉及安全或兼容性时重新评估", "discovered": true},
+    {"item_id": "ITEM-16", "title": "云服务价格传闻", "reason_code": "conflicting_evidence", "reason": "不同来源价格信息冲突", "counterfactual": "官方定价页更新后重新评估", "discovered": true},
+    {"item_id": "ITEM-17", "title": "旧框架年度回顾", "reason_code": "stale", "reason": "无近期事件", "counterfactual": "出现新版本或生态变化后重新评估", "discovered": true},
+    {"item_id": "ITEM-18", "title": "低质量聚合转载", "reason_code": "source_too_weak", "reason": "无法追溯原始来源", "counterfactual": "找到具体一手页面后重新评估", "discovered": true}
+  ]
+}

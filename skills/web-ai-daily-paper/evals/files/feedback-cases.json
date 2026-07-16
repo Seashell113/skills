@@ -1,0 +1,44 @@
+{
+  "cases": [
+    {
+      "feedback_id": "FB-01",
+      "raw_feedback": "Web Components 那条已经有两个浏览器实验实现，应该进前端视野。",
+      "type": "false_negative",
+      "root_cause": "selection_miss",
+      "scope": "skill_defect",
+      "item": {"topic": "frontend_horizon", "discovered": true, "selected": false}
+    },
+    {
+      "feedback_id": "FB-02",
+      "raw_feedback": "这次完全没搜到新出的前端构建工具。",
+      "type": "false_negative",
+      "root_cause": "discovery_miss",
+      "scope": "skill_defect",
+      "item": {"topic": "tooling", "discovered": false, "selected": false}
+    },
+    {
+      "feedback_id": "FB-03",
+      "raw_feedback": "AI Notes 换三个颜色太水了，只是今天这期不该放。",
+      "type": "false_positive",
+      "root_cause": "filler_too_weak",
+      "scope": "one_off",
+      "item": {"topic": "ai_products", "discovered": true, "selected": true}
+    },
+    {
+      "feedback_id": "FB-04",
+      "raw_feedback": "安全条目的影响版本写错了，原公告明确只有 3.x 受影响。",
+      "type": "factual_or_evidence",
+      "root_cause": "claim_mapping_error",
+      "scope": "skill_defect",
+      "item": {"topic": "security", "discovered": true, "selected": true}
+    },
+    {
+      "feedback_id": "FB-05",
+      "raw_feedback": "最近可以多看浏览器新 API。",
+      "type": "preference",
+      "root_cause": "topic_preference",
+      "scope": "pending_confirmation",
+      "item": {"topic": "web_platform"}
+    }
+  ]
+}
