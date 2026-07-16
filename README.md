@@ -1,7 +1,7 @@
 # Seashell's Skills
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Public Skills](https://img.shields.io/badge/public_skills-8-brightgreen.svg)](#skill-清单)
+[![Public Skills](https://img.shields.io/badge/public_skills-10-brightgreen.svg)](#skill-清单)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-orange.svg)](CONTRIBUTING.md)
 
 可复用的 AI Agent 技能（Skill）集合，面向 Claude Code、Codex 以及其他支持技能机制的 Agent 工具。
@@ -26,6 +26,7 @@ Skill 是给 AI Agent 读的能力说明书：每个技能以一份 `SKILL.md` �
 | 技术决策 | [tech-plan-pairing](skills/tech-plan-pairing/) | 技术方向还模糊，需要多轮澄清和方案取舍 | 技术方案、决策记录、待验证项 |
 | 知识治理 | [project-knowledge-manager](skills/project-knowledge-manager/) | 项目 README、AGENTS、docs、模块知识需要归位或审计 | 初始化计划、文档更新、审计报告 |
 | 使用复盘 | [insights-aggregator](skills/insights-aggregator/) | 想分析 Claude Code 与 Codex 的本地使用情况 | 跨工具洞察 HTML 报告 |
+| 行业资讯 | [web-ai-daily-paper](skills/web-ai-daily-paper/) | 生成 AI/Web 早报、审阅入选与落选候选、用人工理由持续校准策略 | 中文早报、Review、证据包、反馈 case |
 | 代码审查 | [fe-code-review](skills/fe-code-review/) | 前端分支、PR 或版本实现需要版本级审查 | 中文 review 报告、风险与合并建议 |
 
 适用范围说明：
@@ -176,6 +177,26 @@ scan
 **依赖与边界**：需要 Python 3；只读本地会话记录，报告会包含项目路径和会话摘要，分享前需要自行检查敏感信息。
 
 详情：[README](skills/insights-aggregator/README.md) / [SKILL.md](skills/insights-aggregator/SKILL.md)
+
+### web-ai-daily-paper
+
+**定位**：面向 AI/Web 从业者的行业早报采集、核验、筛选和持续校准流程。
+
+**适合场景**：生成工作日 AI/Web 早报，补充模型、AI 编程工具、Web 平台、前端框架、工程化、安全和行业事件视野；查看最终入选、自主 Review 变化与高排名未入选候选；反馈漏选、内容太水、事实边界或判断理由。
+
+**你可以这样说**：
+
+```text
+生成今天的 AI/Web 早报，完成证据核验和自主 Review
+查看今天的 Review，我想知道哪些候选没入选以及原因
+第 3 条结论对，但真正值得关注的是行业热度，不是和当前项目相关；其余认可
+```
+
+**产出效果**：带具体原文的中文早报，以及候选、证据、入选、拒绝、Review 和反馈 case。Review 使用连续编号，并把人工对“结论”和“理由”的校准分开保存。
+
+**依赖与边界**：需要宿主具备网页搜索、正文读取和持久文件写入能力；BestBlogs 与 AnySearch Key 都是可选增强。聚合源只负责发现，最终事实回到具体原文；生产规则不会根据单次反馈自动改写。Skill 带 Hermes blueprint，可配置工作日调度和原会话投递，也可被其他支持 Agent Skills 的工具复用。
+
+详情：[SKILL.md](skills/web-ai-daily-paper/SKILL.md)
 
 ### fe-code-review
 

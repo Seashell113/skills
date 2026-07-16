@@ -1,0 +1,41 @@
+{
+  "feedback_id": "FB-20260716-01",
+  "received_at": "2026-07-16T10:00:00+08:00",
+  "raw_feedback": "这条应该入选前端视野。",
+  "status": "triaged",
+  "scope": "skill_defect",
+  "type": "false_negative",
+  "root_cause": "selection_miss",
+  "severity": "medium",
+  "agent_judgment": {
+    "decision": "rejected",
+    "section": null,
+    "grade": "B",
+    "reason": "low_editorial_value"
+  },
+  "human_calibration": {
+    "decision_calibration": "disagree",
+    "rationale_calibration": "corrected",
+    "human_reason_raw": "这条应该入选前端视野，关键是已有多浏览器实验实现。",
+    "reason_codes": ["ecosystem_adoption", "frontend_horizon"],
+    "strategy_target": "selection",
+    "explicitness": "explicit_item"
+  },
+  "run_context": {
+    "run_id": "2026-07-16T082800+0800",
+    "item_id": "ITEM-07",
+    "title": "示例标题",
+    "url": "https://example.com/specific-page",
+    "discovered": true,
+    "initially_selected": false,
+    "review_status": "rejected",
+    "published": false,
+    "decision_reason": "low_editorial_value"
+  },
+  "resolution": {
+    "proposal_id": null,
+    "regression_eval_id": null,
+    "validated": false,
+    "resolved_in_version": null
+  }
+}

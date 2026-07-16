@@ -1,0 +1,48 @@
+version: 1
+timezone: Asia/Shanghai
+audience: AI/Web 行业从业者与前端研发团队
+
+schedule:
+  cron: "28 8 * * 1-5"
+  weekdays_only: true
+
+edition:
+  normal_min_items: 5
+  normal_max_items: 8
+  busy_day_soft_max_items: 12
+  frontend_target_items: 2
+  max_frontend_horizon_items: 2
+  max_extended_reading_items: 2
+
+freshness:
+  first_run_hours: 48
+  normal_max_hours: 96
+  major_missed_event_days: 7
+  extended_reading_days: 7
+  event_history_days: 30
+
+discovery:
+  curated_sources:
+    aihot: true
+    front_end_rss: true
+    bestblogs: true
+  search:
+    mode: auto
+    providers:
+      - native
+      - anysearch
+    anysearch_use_for:
+      - fallback
+      - p0_gap
+      - cn_intl_crosscheck
+      - evaluation
+
+review:
+  enabled: true
+  max_revision_passes: 1
+  shortlist_size: 10
+
+feedback:
+  persist_raw_feedback: true
+  require_confirmation_for_profile_change: true
+  auto_modify_skill: false
