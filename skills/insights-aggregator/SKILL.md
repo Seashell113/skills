@@ -35,7 +35,17 @@ python3 {skill_dir}/scripts/collect.py [--days 30] [--max-facets 50]
 
 窗口语义：SessionMeta 始终全量增量维护（便宜）；facet 只对窗口内的实质会话提取（新→旧，**不向窗口外回填**）。已提取过但 resume 后大幅续写（消息 +5 条以上）的会话会自动重新入队。
 
-读 stdout JSON：关注 `metas_by_agent`（两个工具是否都有数据）、`substantive_in_window` / `facets_already_cached` / `pending_facets`（窗口内总数 / 已有缓存 / 本次待提取）、`note_remaining_uncached`（>0 说明还有历史会话未解析 meta，可提高 `--max-load` 再跑一次）。
+读 stdout JSON：关注 `metas_by_agent`（两个工具是否都有数据）、`substantive_in_window` / `facets_already_cached` / `pending_facets`（窗口内总数 / 已有缓存 / 本次待提取）、`note_remaining_uncached`（>0 说明还有历史会话未解析 meta，可提高 `--max-load` 再跑一次）。同时检查 `codex_ownership.owner_leakage_lines`、`invalid_json_lines` 和 `result_call_link_rate`；存在非零 owner 泄漏或快照校验失败时，不继续生成洞察。
+
+需要审计级复现时，先由调用方生成包含 `path`、`session_id`、`byte_length`、`mtime_ns`、`sha256` 和 `snapshot_id` 的私密 Codex snapshot manifest，再传入：
+
+```bash
+python3 {skill_dir}/scripts/collect.py \
+  --codex-snapshot-manifest /path/to/snapshot-manifest.json \
+  --max-load 2000
+```
+
+采集器只读取每个 rollout 的冻结字节前缀，并验证 SHA-256；不会读取 cutoff 后新增内容。
 
 ### Step 2 — Facet 提取（并行子 agent）
 
@@ -75,7 +85,7 @@ python3 {skill_dir}/scripts/render.py
 
 ## 增量与缓存
 
-- SessionMeta 按 `(agent, session_id)` 缓存，源 jsonl 文件 mtime 变化自动重算（全量增量维护）。
+- SessionMeta 按 `(agent, session_id)` 缓存，源 jsonl 文件的 mtime、mtime_ns、size、snapshot id 或 SHA-256 变化时自动重算（全量增量维护）。
 - facet 按 `(agent, session_id)` 永久缓存，仅当会话 resume 后大幅续写（消息 +5 条以上，依据 facet 内 `_user_message_count` 戳）才重提。
 - 同窗口重复运行、或不同时期的窗口有重叠时，重叠部分直接复用缓存，只为新会话付 LLM 成本。强制全量重提：删 `~/.agent-insights/cache/facets/`。
 
@@ -97,6 +107,7 @@ python3 {skill_dir}/scripts/render.py
 ## 已知边界（与源码的有意差异）
 
 - **历史窗口不对称**：Claude Code 默认自动清理约 30 天前的会话记录（`cleanupPeriodDays`），Codex 全量保留。跨工具对比时看"使用模式"而非绝对数量；洞察提示词中已要求 LLM 注意此口径。建议用户在 Claude `settings.json` 中调大 `cleanupPeriodDays` 以积累数据。
+- **Codex rollout 不是天然的一会话一文件**：fork、resume 或 subagent 文件可能内嵌父会话历史。采集器以文件名和首条物理 `session_meta` 校验身份，区分 owned live、imported history 与 orphan；导入历史不计入物理会话指标。
 - 长会话不做 LLM 分块摘要，改为 120k 字符头尾截断（子 agent 上下文足够大，没必要多付一层摘要成本）。
 - Edit 行数统计用 `difflib`（对齐 `diffLines` 语义）；Codex 行数从 apply_patch 的 patch 文本解析。
 - Codex 的 token 口径取 `input_tokens - cached_input_tokens`，对齐 Claude 的"不含缓存读取"口径。
