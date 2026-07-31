@@ -1,0 +1,9 @@
+interface:
+  display_name: "Codex ChatGPT Dispatch"
+  short_description: "Browser 全链路调度、单次提交与本地核验"
+  default_prompt: "Use $codex-chatgpt-dispatch to prepare a complete handoff or a focused follow-up evidence bridge, convert inaccessible local paths into consumable evidence, operate the built-in Browser on the correct ordinary ChatGPT web conversation for one authorized submission, wait and read the result in the same page without intervention, use native thread tools only for recovery, and verify any maintained, revised, or reversed conclusion locally."
+
+policy:
+  products:
+    - CODEX
+  allow_implicit_invocation: false

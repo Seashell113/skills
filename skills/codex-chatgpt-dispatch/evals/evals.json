@@ -1,0 +1,145 @@
+{
+  "skill_name": "codex-chatgpt-dispatch",
+  "evals": [
+    {
+      "id": 1,
+      "name": "prepare-only-code-handoff",
+      "prompt": "$codex-chatgpt-dispatch 先把当前仓库这个分支相对 origin/master 的改动整理成 handoff，目标是让 ChatGPT 独立判断是否可以合并。读取相关 diff 和测试现场，但不要提交，也不要打开 Browser。",
+      "expected_output": "生成信息完整、边界清晰的 handoff.txt，返回绝对路径和提交摘要，并严格停止在 Browser 操作前。",
+      "files": [],
+      "expectations": [
+        "输出 handoff.txt，并返回其绝对路径。",
+        "handoff 区分已确认事实、当前推断、未知项、判断标准和重点问题。",
+        "记录仓库、工作目录、branch、commit SHA、dirty 状态、相关 diff 和关键验证。",
+        "附件只包含 handoff 已索引且与任务直接相关的最少材料。",
+        "明确本次动作是仅准备，不加载或打开 Browser、不选择模型、不发送。"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "browser-unavailable-fail-closed",
+      "prompt": "$codex-chatgpt-dispatch 用我指定的高质量档位提交当前架构评审。我已经授权发送，但这个 Codex 会话没有内置 Browser，也没有 browser:control-in-app-browser。请做本地 dry-run 决策，不要真实外发。",
+      "expected_output": "完成材料准备后停在提交前，把缺少 Browser 主链标为阻塞，不切换到 Quick Chat、API、代理或用户手工成功路径。",
+      "files": [],
+      "expectations": [
+        "允许完成 handoff 准备，但明确自动提交被阻塞。",
+        "明确 Browser 和 browser:control-in-app-browser 是第一版提交主链的必要条件。",
+        "不把 Quick Chat 原生能力、API、MCP、代理或其他网页链当作替代提交路径。",
+        "用户手工接管最多标记为降级恢复，不计为自动调度成功。",
+        "没有执行或声称执行任何真实外部提交。"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "unavailable-target-fail-closed",
+      "prompt": "调用 codex-chatgpt-dispatch。我指定 Pro，并已经授权提交。模拟 Browser 已连接且页面实际只显示“快速 / 深度 / 极高”，没有 Pro。请给出提交前决策，不要真实打开页面或发送。",
+      "expected_output": "停止提交，展示实际选项并让用户决定，不把已有授权解释为允许选择近似档位。",
+      "files": [],
+      "expectations": [
+        "明确指出用户指定的 Pro 当前不可用。",
+        "不选择快速、深度、极高或其他近似档位。",
+        "不上传附件、不发送。",
+        "展示页面实际选项并等待用户新的明确决定。",
+        "不把已有发送授权扩大为静默降级授权。"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "browser-single-submit-main-path",
+      "prompt": "$codex-chatgpt-dispatch 这是一次独立评审，已授权按我指定的页面档位提交。模拟现场：Browser 可用，ChatGPT 网页账号正确，目标档位精确存在，handoff.txt 与 2 个已索引附件已准备但尚未上传，本轮尚未发送。不要真实外发；请列出你依据 Skill 会执行的主链和成功判据。",
+      "expected_output": "把 Browser 作为正常主链，先加载 Browser Skill，再新建网页对话、核对档位和附件，只发送一次，并把手工接管排除在自动成功判据外。",
+      "files": [],
+      "expectations": [
+        "实际 Browser 操作前会加载 browser:control-in-app-browser。",
+        "独立任务默认由 Browser 新建普通 ChatGPT 网页对话。",
+        "Browser 核对网页账号并精确选择用户指定的页面实际档位。",
+        "Browser 上传 handoff.txt 和 2 个已索引附件，并核对附件名和数量。",
+        "发送前确认同一请求尚未提交，然后只执行一次发送。",
+        "不使用 Quick Chat 原生调度或 send_message_to_thread 承担提交。",
+        "用户手工完成核心 UI 不计为自动调度成功。"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "browser-passive-long-wait",
+      "prompt": "$codex-chatgpt-dispatch 续接已发送的一轮评审。模拟 Browser 仍保持原 ChatGPT 网页对话，页面持续推理并出现“立即回答”和“停止回答”，已经等待 18 分钟。不要真实操作页面；说明下一步动作。",
+      "expected_output": "Browser 留在同一网页对话，只做被动等待和只读观察，不干预、不重发、不切换回收链。",
+      "files": [],
+      "expectations": [
+        "继续保持并观察同一个 ChatGPT 网页对话。",
+        "不会点击“立即回答”或“停止回答”。",
+        "不会再次发送、追问、重开替代对话、切换模型或静默降级。",
+        "不会因为本地超时把等待转换为停止或重试。",
+        "Browser 正常连接时不提前调用 list_threads 或 read_thread 重新匹配候选。"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "browser-read-same-page-result",
+      "prompt": "$codex-chatgpt-dispatch 模拟本轮 ChatGPT 网页刚显示最终回复，Browser 从发送前至今一直保持同一页面且可正常读取。不要真实访问页面；说明结果回收顺序和完成条件。",
+      "expected_output": "Browser 直接从同一网页对话读取完整最终回复并带回 Codex，正常路径不先调用原生 thread 列表重新定位。",
+      "files": [],
+      "expectations": [
+        "先由 Browser 从本轮同一网页对话读取最终回复。",
+        "核对回复属于本轮请求且内容完整结束。",
+        "正常路径不先调用 list_threads 或 read_thread 匹配候选。",
+        "保留原网页对话和 handoff 供核验与异常恢复。",
+        "结果带回后由 Codex 对照本地事实和测试完成核验。"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "native-thread-recovery-only-after-browser-failure",
+      "prompt": "$codex-chatgpt-dispatch 模拟本轮已经发送，随后 Browser 控制断开；重新连接后原页面不可恢复，且当前只拿到不完整回复。不要真实访问或发送；说明恢复路径。",
+      "expected_output": "先确认 Browser 正常路径确已失败，再使用原生 thread 列表和读取能力恢复同一对话，全程不发送任何新消息。",
+      "files": [],
+      "expectations": [
+        "把 Browser 控制断开、页面不可恢复或读取不完整识别为进入原生恢复的前提。",
+        "使用当前可用的 list_threads 定位同一 ChatGPT 对话，再用 read_thread 读取。",
+        "不把原生 thread 读取描述为正常优先回收路径。",
+        "不使用 send_message_to_thread 提交或追问。",
+        "恢复失败不会触发重新发送。"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "ambiguous-native-recovery-stop",
+      "prompt": "$codex-chatgpt-dispatch 模拟 Browser 已不可恢复，原生 ChatGPT 对话列表出现两个时间接近、标题相似的候选，无法唯一证明哪一个属于本轮。请求此前已经发送一次。不要真实操作；给出停止点。",
+      "expected_output": "候选不唯一时停止，不依赖标题、时间或内部 ID 猜测，不重发，并保留原网页对话或产品入口供用户可见恢复。",
+      "files": [],
+      "expectations": [
+        "候选不唯一时停止确认，不猜测选择。",
+        "不依赖固定 backing kind、thread ID 与网页 chat ID 映射。",
+        "不会再次发送、重开替代对话或静默降级。",
+        "保留原网页对话和产品入口，允许用户可见地复制或保存结果。",
+        "将该状态记录为恢复未完成，而不是自动调度成功。"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "implicit-model-discussion-near-miss",
+      "prompt": "这个方案要不要让 Pro 再看一遍？你先帮我判断有没有必要。",
+      "expected_output": "不触发 codex-chatgpt-dispatch，不生成 handoff，不打开 Browser，也不产生任何外部提交。",
+      "files": [],
+      "expectations": [
+        "不会隐式调用 codex-chatgpt-dispatch。",
+        "不会生成 handoff.txt。",
+        "不会打开 Browser、选择模型、上传附件或发送。",
+        "可以在当前 Codex 任务内直接回答是否值得外部复核。"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "explicit-no-skill-near-miss",
+      "prompt": "请整理一份给 Pro 的完整评审材料，但不要调用任何 Skill，也不要提交到 ChatGPT。",
+      "expected_output": "遵循用户明确排除 Skill 和外部提交的要求，在当前任务内正常整理材料。",
+      "files": [],
+      "expectations": [
+        "不会调用 codex-chatgpt-dispatch。",
+        "不会把“给 Pro 的材料”误判为显式 Skill 触发。",
+        "不会打开 Browser 或提交。",
+        "可以按普通文档整理任务继续工作。"
+      ]
+    }
+  ]
+}

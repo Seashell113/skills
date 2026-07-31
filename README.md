@@ -1,7 +1,7 @@
 # Seashell's Skills
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Public Skills](https://img.shields.io/badge/public_skills-10-brightgreen.svg)](#skill-清单)
+[![Public Skills](https://img.shields.io/badge/public_skills-11-brightgreen.svg)](#skill-清单)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-orange.svg)](CONTRIBUTING.md)
 
 可复用的 AI Agent 技能（Skill）集合，面向 Claude Code、Codex 以及其他支持技能机制的 Agent 工具。
@@ -19,6 +19,7 @@ Skill 是给 AI Agent 读的能力说明书：每个技能以一份 `SKILL.md` �
 | 场景 | Skill | 适合什么时候用 | 典型产出 |
 | --- | --- | --- | --- |
 | 会话治理 | [codex-thread-organizer](skills/codex-thread-organizer/) | Codex 会话需要命名、收口、handoff 或回溯 | 会话标题、收口摘要、交接包 |
+| 模型协作 | [codex-chatgpt-dispatch](skills/codex-chatgpt-dispatch/) | 需要把 Codex 本地现场交给 ChatGPT 网页指定档位独立复审 | handoff、网页复审结果、本地核验结论 |
 | 阅读交付 | [human-html-artifact](skills/human-html-artifact/) | 长文档、方案、review 或多文档摘录难以线性阅读 | 自包含 HTML 阅读页 |
 | 本地自动化 | [codex-quota-inspector](skills/codex-quota-inspector/) | 查询 Codex 普通额度和 ChatGPT 免费重置机会 | 脱敏额度快照 |
 | 本地自动化 | [invoice-reimbursement-bundler](skills/invoice-reimbursement-bundler/) | 本地发票 PDF 需要统计、查重、凑金额和打包 | 报销组合、结果目录 |
@@ -38,6 +39,25 @@ Skill 是给 AI Agent 读的能力说明书：每个技能以一份 `SKILL.md` �
 公开清单只列出适合复用或参考的 skills；少量个人环境专用目录仅用于多设备同步，不作为公开推荐。每个 skill 以 `SKILL.md` 作为 agent 主真源；目录内 `README.md` 面向人类使用者，说明前置条件、使用示例和目录结构。第三方固定快照以保留上游目录为优先，来源和更新规则见 `docs/contributing/`。
 
 ## Skill 简介与示例
+
+### codex-chatgpt-dispatch
+
+**定位**：Codex 到 ChatGPT 网页的证据化调度协议。
+
+**适合场景**：需要把当前会话、仓库与验证现场整理成可独立审查的材料，交给用户指定且页面实际可用的 ChatGPT 档位评审，再回到本地核验结论。
+
+**你可以这样说**：
+
+```text
+$codex-chatgpt-dispatch 把当前方案和关键证据交给 Pro 做一次独立审查，拿到结果后回来核验
+$codex-chatgpt-dispatch 用新增 Spike 结果在原对话继续讨论一轮
+```
+
+**产出效果**：自包含的 `handoff.txt` 或续评证据桥；通过内置 Browser 在普通 ChatGPT 网页只提交一次、同页等待和读取；最终给出本地证据核验与采用情况。
+
+**依赖与边界**：真实提交只支持 ChatGPT 桌面中的 Codex + 内置 Browser；显式触发不等于发送授权。目标档位不可用、Browser 主链不可用或发送状态不唯一时停止，不静默降级、重发或切换链路。侧栏优先可见，但显隐不作为成功判据。
+
+详情：[README](skills/codex-chatgpt-dispatch/README.md) / [SKILL.md](skills/codex-chatgpt-dispatch/SKILL.md)
 
 ### codex-thread-organizer
 
