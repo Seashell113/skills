@@ -4,11 +4,12 @@
 
 ## 是什么
 
-`codex-chatgpt-dispatch` 帮助 Codex 把当前任务整理成可审查的
-`handoff.txt`，通过内置 Browser 操作普通 ChatGPT 网页对话，交给用户指定的
-模型或推理预设，只提交一次、在同一页面无干预等待并读取完整结果，再回到本地完成
-事实和实现核验。对于同一任务的续评，它会复用原网页对话，用新增证据桥要求目标模型
-明确维持、修订或反转上一轮判断。
+`codex-chatgpt-dispatch` 帮助 Codex 把当前任务所需上下文整理完整，通过内置
+Browser 操作普通 ChatGPT 网页对话，交给用户指定的模型或
+推理预设，只提交一次、在同一页面无干预等待，取得文本回复或图片产物后再回到本地
+核验。复杂任务使用 `handoff.txt`；目标清楚的简单生图可以直接使用精炼提示词。
+对于同一任务的续评，它会复用原网页对话，用新增证据桥要求目标模型明确维持、修订
+或反转上一轮判断。
 
 它处理调度协议和上下文质量，不管理账号，不提供模型网关，也不建设任务队列或自动
 重试系统。
@@ -21,6 +22,7 @@
 $codex-chatgpt-dispatch 先整理当前方案的 handoff，不要提交
 $codex-chatgpt-dispatch 用页面当前可用的 Pro 深度评审并提交一次
 调用 codex-chatgpt-dispatch，把这个实现交给指定模型独立判断
+$codex-chatgpt-dispatch 用页面当前非 Pro 档位生成一张配图，保存后在本地检查
 ```
 
 普通评审、模型讨论、材料整理或“要不要让 Pro 再看一遍”不会触发该 Skill。
@@ -30,10 +32,10 @@ $codex-chatgpt-dispatch 用页面当前可用的 Pro 深度评审并提交一次
 ```text
 显式触发
 → 盘点必要上下文
-→ 生成 handoff.txt 和最少附件
+→ 按复杂度准备直接提示词或 handoff.txt，并选择最少附件
 → 核对账号、目标档位、材料和发送授权
 → 内置 Browser 在普通 ChatGPT 网页只提交一次
-→ Browser 在同一页面无干预等待并读取结果
+→ Browser 在同一页面无干预等待并取得文本或图片结果
 → Browser 失败时才用原生 ChatGPT thread 恢复
 → Codex 本地核验
 → 有新增证据时复用原会话续评，而不是重新复制完整上下文
@@ -81,6 +83,7 @@ npx skills add https://github.com/Seashell113/skills.git -g \
 - 原生 thread 只负责异常恢复，`send_message_to_thread` 不承担提交或追问。
 - 用户手工接管不计为自动调度验收通过。
 - 外部回答必须回到本地证据核验。
+- 图片结果需要定位本地文件并检查格式、尺寸和实际画面；保存异常时恢复同一产物。
 - 技术方案存在分歧时，优先把可验证假设转成受控 Spike；有新增证据后再续评。
 - 续评记录模型维持、修订或反转结论的理由，并区分立即建设与未来触发项。
 - Pro 等高成本档位不作为常规 eval。
@@ -99,7 +102,7 @@ Skill 不读取或持久化 Cookie、Browser Profile、登录凭据和认证存�
 
 | 路径 | 用途 |
 | --- | --- |
-| `SKILL.md` | Browser 主流程、handoff 质量门、等待、恢复与核验边界 |
+| `SKILL.md` | Browser 主流程、上下文质量门、等待、结果回收与核验边界 |
 | `agents/openai.yaml` | Codex 展示信息和显式触发策略 |
 | `evals/evals.json` | 非外发行为与触发验证场景 |
 

@@ -19,7 +19,7 @@ Skill 是给 AI Agent 读的能力说明书：每个技能以一份 `SKILL.md` �
 | 场景 | Skill | 适合什么时候用 | 典型产出 |
 | --- | --- | --- | --- |
 | 会话治理 | [codex-thread-organizer](skills/codex-thread-organizer/) | Codex 会话需要命名、收口、handoff 或回溯 | 会话标题、收口摘要、交接包 |
-| 模型协作 | [codex-chatgpt-dispatch](skills/codex-chatgpt-dispatch/) | 需要把 Codex 本地现场交给 ChatGPT 网页指定档位独立复审 | handoff、网页复审结果、本地核验结论 |
+| 模型协作 | [codex-chatgpt-dispatch](skills/codex-chatgpt-dispatch/) | 需要把 Codex 本地现场交给 ChatGPT 网页指定档位完成复审或生图 | handoff、文本或图片结果、本地核验结论 |
 | 阅读交付 | [human-html-artifact](skills/human-html-artifact/) | 长文档、方案、review 或多文档摘录难以线性阅读 | 自包含 HTML 阅读页 |
 | 本地自动化 | [codex-quota-inspector](skills/codex-quota-inspector/) | 查询 Codex 普通额度和 ChatGPT 免费重置机会 | 脱敏额度快照 |
 | 本地自动化 | [invoice-reimbursement-bundler](skills/invoice-reimbursement-bundler/) | 本地发票 PDF 需要统计、查重、凑金额和打包 | 报销组合、结果目录 |
@@ -44,16 +44,17 @@ Skill 是给 AI Agent 读的能力说明书：每个技能以一份 `SKILL.md` �
 
 **定位**：Codex 到 ChatGPT 网页的证据化调度协议。
 
-**适合场景**：需要把当前会话、仓库与验证现场整理成可独立审查的材料，交给用户指定且页面实际可用的 ChatGPT 档位评审，再回到本地核验结论。
+**适合场景**：需要把当前会话、仓库与验证现场交给用户指定且页面实际可用的 ChatGPT 档位完成评审，或通过同一网页调度链生成图片，再回到本地核验结果。
 
 **你可以这样说**：
 
 ```text
 $codex-chatgpt-dispatch 把当前方案和关键证据交给 Pro 做一次独立审查，拿到结果后回来核验
 $codex-chatgpt-dispatch 用新增 Spike 结果在原对话继续讨论一轮
+$codex-chatgpt-dispatch 用页面当前非 Pro 档位生成一张配图，保存后在本地检查
 ```
 
-**产出效果**：自包含的 `handoff.txt` 或续评证据桥；通过内置 Browser 在普通 ChatGPT 网页只提交一次、同页等待和读取；最终给出本地证据核验与采用情况。
+**产出效果**：按任务需要准备直接提示词、`handoff.txt` 或续评证据桥；通过内置 Browser 在普通 ChatGPT 网页只提交一次并同页等待；最终取得文本回复或本地图片文件并完成核验。
 
 **依赖与边界**：真实提交只支持 ChatGPT 桌面中的 Codex + 内置 Browser；显式触发不等于发送授权。目标档位不可用、Browser 主链不可用或发送状态不唯一时停止，不静默降级、重发或切换链路。侧栏优先可见，但显隐不作为成功判据。
 
