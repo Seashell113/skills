@@ -1,7 +1,7 @@
 interface:
   display_name: "Codex ChatGPT Dispatch"
-  short_description: "Browser 调度 ChatGPT 文本与图片产物"
-  default_prompt: "Use $codex-chatgpt-dispatch to prepare only the context this task needs, operate the built-in Browser on the correct ordinary ChatGPT web conversation for one authorized submission, wait without intervention, recover the text or image result from the same page, and verify it locally."
+  short_description: "整理材料并通过 Browser 调度 ChatGPT"
+  default_prompt: "Use $codex-chatgpt-dispatch to prepare only the context this task needs, produce a copy-friendly attachment card and preserve the sidebar tab when the current in-app Browser requires manual upload, verify the uploaded files, submit exactly once to the correct ordinary ChatGPT web conversation, wait without intervention, recover the text or image result from the same page, and verify it locally."
 
 policy:
   products:

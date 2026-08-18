@@ -5,9 +5,11 @@
 ## 是什么
 
 `codex-chatgpt-dispatch` 帮助 Codex 把当前任务所需上下文整理完整，通过内置
-Browser 操作普通 ChatGPT 网页对话，交给用户指定的模型或
-推理预设，只提交一次、在同一页面无干预等待，取得文本回复或图片产物后再回到本地
-核验。复杂任务使用 `handoff.txt`；目标清楚的简单生图可以直接使用精炼提示词。
+Browser 操作普通 ChatGPT 网页对话，交给用户指定的模型或推理预设，只提交一次、
+在同一页面无干预等待，取得文本回复或图片产物后再回到本地核验。复杂任务使用
+`handoff.txt`；目标清楚的简单生图可以直接使用精炼提示词。当前内置 Browser
+不能自动上传附件：Skill 会先把页面和档位准备好，给出便于复制选择的完整路径清单，
+由用户上传一次，再由 Browser 核对并继续发送与回收。
 对于同一任务的续评，它会复用原网页对话，用新增证据桥要求目标模型明确维持、修订
 或反转上一轮判断。
 
@@ -34,22 +36,25 @@ $codex-chatgpt-dispatch 用页面当前非 Pro 档位生成一张配图，保存
 → 盘点必要上下文
 → 按复杂度准备直接提示词或 handoff.txt，并选择最少附件
 → 核对账号、目标档位、材料和发送授权
-→ 内置 Browser 在普通 ChatGPT 网页只提交一次
+→ 有附件时输出上传卡并保留侧栏标签页，等待用户只完成上传
+→ Browser 核对页面附件，在普通 ChatGPT 网页只提交一次
 → Browser 在同一页面无干预等待并取得文本或图片结果
 → Browser 失败时才用原生 ChatGPT thread 恢复
 → Codex 本地核验
 → 有新增证据时复用原会话续评，而不是重新复制完整上下文
 ```
 
-Browser 是第一版正常全链路适配器。用户手工完成网页操作只能作为降级恢复，不能算
-自动调度成功；原生 ChatGPT thread 能力只用于 Browser 控制断开、页面不可恢复或
-结果读取不完整的异常场景。
+Browser 是第一版页面主链适配器。当前有附件时，人工上传是正常的受限协作检查点，
+其余页面动作仍由 Browser 完成，状态记录为“人工辅助调度成功”；意外接管其他核心
+步骤才算降级恢复。原生 ChatGPT thread 能力只用于 Browser 控制断开、页面不可恢复
+或结果读取不完整的异常场景。
 
 ## 前置条件
 
 - ChatGPT 桌面应用中的 Codex 可以使用；
 - 当前会话提供内置 Browser 和 `browser:control-in-app-browser` Skill；
 - Browser 可以打开或接管普通 `chatgpt.com` 页面；
+- 用户可以在 Browser 保留的同一侧栏标签页中完成一次人工附件上传；
 - 当前 ChatGPT 网页账号已登录，且用户有权外发选定材料；
 - 提交时页面实际提供用户指定的模型或推理预设；
 - Browser 能保持或恢复同一网页对话并读取最终结果。
@@ -70,6 +75,10 @@ npx skills add https://github.com/Seashell113/skills.git -g \
 - Browser 操作前加载并遵循 `browser:control-in-app-browser`。
 - 调度期间优先保持 Browser 侧栏可见；侧栏显隐不可控但同一 in-app Browser 标签页
   仍可操作时，不阻断任务。
+- 当前 IAB 有附件时不尝试 `filechooser` / `setFiles` 自动上传；一次给全按目录分组的
+  文件名、用途和绝对路径，暂停前使用 `tab.markHandoff()` 保留标签页。
+- 用户上传后由 Browser 从页面核对附件名和数量；已有发送授权不为形式完整重复确认。
+- 人工上传不记为自动调度成功，使用“人工辅助调度成功”保持完成边界诚实。
 - 使用用户指定、提交时页面实际可用的模型或推理预设。
 - 目标档位不可用时停止，不自动选择近似档位。
 - 发送前核对网页账号、目标档位、附件名和数量。
@@ -103,6 +112,7 @@ Skill 不读取或持久化 Cookie、Browser Profile、登录凭据和认证存�
 | 路径 | 用途 |
 | --- | --- |
 | `SKILL.md` | Browser 主流程、上下文质量门、等待、结果回收与核验边界 |
+| `references/iab-manual-upload.md` | 当前 IAB 上传限制、低摩擦人工检查点和排障复验规则 |
 | `agents/openai.yaml` | Codex 展示信息和显式触发策略 |
 | `evals/evals.json` | 非外发行为与触发验证场景 |
 

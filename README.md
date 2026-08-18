@@ -54,9 +54,9 @@ $codex-chatgpt-dispatch 用新增 Spike 结果在原对话继续讨论一轮
 $codex-chatgpt-dispatch 用页面当前非 Pro 档位生成一张配图，保存后在本地检查
 ```
 
-**产出效果**：按任务需要准备直接提示词、`handoff.txt` 或续评证据桥；通过内置 Browser 在普通 ChatGPT 网页只提交一次并同页等待；最终取得文本回复或本地图片文件并完成核验。
+**产出效果**：按任务需要准备直接提示词、`handoff.txt` 或续评证据桥；有附件时给出按目录分组、可直接复制选择的上传卡并保留侧栏标签页，用户上传一次后由 Browser 核对；随后在普通 ChatGPT 网页只提交一次并同页等待，最终取得文本回复或本地图片文件并完成核验。
 
-**依赖与边界**：真实提交只支持 ChatGPT 桌面中的 Codex + 内置 Browser；显式触发不等于发送授权。目标档位不可用、Browser 主链不可用或发送状态不唯一时停止，不静默降级、重发或切换链路。侧栏优先可见，但显隐不作为成功判据。
+**依赖与边界**：真实提交只支持 ChatGPT 桌面中的 Codex + 内置 Browser；当前 IAB 不自动上传附件，人工上传完成的调度单独标记为“人工辅助调度成功”。显式触发不等于发送授权。目标档位不可用、Browser 主链不可用或发送状态不唯一时停止，不静默降级、重发或切换链路。侧栏优先可见，但显隐不作为成功判据。
 
 详情：[README](skills/codex-chatgpt-dispatch/README.md) / [SKILL.md](skills/codex-chatgpt-dispatch/SKILL.md)
 

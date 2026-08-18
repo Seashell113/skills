@@ -154,6 +154,49 @@
         "不会仅因缺少标准 download 事件就重新生成；会检查对应本地文件是否真实存在。",
         "对本地图片检查格式、尺寸和实际画面，并返回可定位的文件路径。"
       ]
+    },
+    {
+      "id": 12,
+      "name": "iab-manual-upload-card",
+      "prompt": "$codex-chatgpt-dispatch 用 Pro 审阅这批材料，我已授权发送一次。模拟现场：当前是内置 Browser，目标账号和 Pro 档位可用，请上传 /tmp/review/handoff.txt、/tmp/review/decision-log.md、/tmp/source/design.pdf 和 /tmp/source/route-list.md；不要真实访问或外发，请说明你会怎样把页面和材料交给我完成一次人工上传。",
+      "expected_output": "不尝试 IAB 自动上传；先准备目标对话和档位，按两个父目录生成可复制的完整上传卡，保留标签页，只让用户上传并回复已上传。",
+      "files": [],
+      "expectations": [
+        "不会调用 filechooser、setFiles、私有上传接口或连续试探多个上传入口。",
+        "上传卡明确总数为 4，并按 /tmp/review 与 /tmp/source 两个父目录分组。",
+        "逐个列出精确文件名、用途和绝对路径，并给出页面应显示的附件名。",
+        "暂停前已经准备目标 ChatGPT 对话、账号和 Pro 档位，而不是把页面判断交给用户。",
+        "结束当前轮次前会调用 tab.markHandoff() 保留同一侧栏标签页。",
+        "只要求用户上传且不要发送，上传后回复已上传；不重复询问已有发送授权。"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "iab-filechooser-timeout-stop-retrying",
+      "prompt": "$codex-chatgpt-dispatch 模拟一次旧路径失败：内置 Browser 点击精确普通文件入口后出现 Timed out after 3000ms waiting for file chooser，未处理的等待 Promise 随后重置了 Browser 运行内核。请求尚未确认发送。不要真实访问页面；说明恢复和下一步。",
+      "expected_output": "把超时识别为当前 IAB 自动上传不受支持，把内核重置识别为执行错误；停止重试，恢复原会话并检查是否已发送，再转人工上传检查点。",
+      "files": [],
+      "expectations": [
+        "不会增加超时时间、换多个选择器继续尝试或把通用 API 存在当成 IAB 支持证据。",
+        "把 filechooser 超时分类为当前 IAB 自动上传不受支持。",
+        "把未处理 Promise 导致的内核重置分类为 Agent 执行错误，不把它当作上传成功或失败证据。",
+        "重新连接后先只读恢复原会话并检查是否已经发送，绝不直接重发。",
+        "确认尚未发送后生成上传卡并进入一次人工上传检查点。"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "resume-after-manual-upload",
+      "prompt": "$codex-chatgpt-dispatch 我已经按上传卡上传好了。模拟页面：原侧栏对话仍在，指定 Pro 档位仍选中，页面显示 handoff.txt、decision-log.md 和 design.pdf，本轮请求尚未发送，之前已经明确授权发送一次。不要真实外发；说明接下来如何完成。",
+      "expected_output": "恢复同一标签页，从页面核对附件和档位后沿用已有授权只发送一次，同页等待并将状态记为人工辅助调度成功。",
+      "files": [],
+      "expectations": [
+        "从页面核对目标对话、Pro 档位、3 个附件名和数量，不只凭用户口头确认。",
+        "确认同一请求尚未发送后才输入控制语并发送。",
+        "沿用已有发送授权，不为形式完整再次询问用户。",
+        "只发送一次，并在同一网页对话中无干预等待和读取结果。",
+        "最终状态使用人工辅助调度成功，不冒充自动调度成功。"
+      ]
     }
   ]
 }
