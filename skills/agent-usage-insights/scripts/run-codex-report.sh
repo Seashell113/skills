@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+codex_home_dir="${AGENT_USAGE_INSIGHTS_CODEX_HOME:-${CODEX_HOME:-$HOME/.codex}}"
 tool_dir="${AGENT_USAGE_INSIGHTS_TOOL_DIR:-}"
 if [ -z "$tool_dir" ]; then
   for candidate in \
+    "$codex_home_dir/tools/agent-usage-insights" \
     "$HOME/workspace/ai/ai-workspace/system/tools/agent-usage-insights" \
     "$HOME/workspace/ai/ai-workspace/tools/agent-usage-insights"
   do
@@ -19,7 +21,6 @@ if [ -z "$tool_dir" ] || [ ! -d "$tool_dir/src/agent_usage_insights" ]; then
   exit 1
 fi
 
-codex_home_dir="${AGENT_USAGE_INSIGHTS_CODEX_HOME:-${CODEX_HOME:-$HOME/.codex}}"
 report_path="${AGENT_USAGE_INSIGHTS_REPORT:-$codex_home_dir/insights/report.html}"
 context_path="${AGENT_USAGE_INSIGHTS_CONTEXT:-$codex_home_dir/insights/llm-context.json}"
 analysis_path="${AGENT_USAGE_INSIGHTS_ANALYSIS:-$codex_home_dir/insights/agent-analysis.json}"

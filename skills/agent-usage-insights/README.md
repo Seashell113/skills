@@ -23,7 +23,7 @@ bash ~/.codex/skills/agent-usage-insights/scripts/run-codex-report.sh \
   --metrics-output ~/.codex/insights/codex-20260716-20260827.metrics.json
 ```
 
-底层工具默认位于个人 `ai-workspace/system/tools/agent-usage-insights`；也可通过 `AGENT_USAGE_INSIGHTS_TOOL_DIR` 指定。
+helper 优先使用 `AGENT_USAGE_INSIGHTS_TOOL_DIR`，其次使用 `$CODEX_HOME/tools/agent-usage-insights` 本机运行副本，再回退到个人 `ai-workspace/system/tools/agent-usage-insights`。底层工具主真源仍在 `ai-workspace`；本机运行副本用于避免当前工作树停在其他分支时误用旧解析器。
 
 ## 与 insights-aggregator 的区别
 

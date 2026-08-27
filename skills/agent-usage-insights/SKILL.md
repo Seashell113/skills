@@ -63,10 +63,12 @@ bash ~/.codex/skills/agent-usage-insights/scripts/run-codex-report.sh \
 helper 按顺序定位：
 
 1. `AGENT_USAGE_INSIGHTS_TOOL_DIR`
-2. `$HOME/workspace/ai/ai-workspace/system/tools/agent-usage-insights`
-3. 旧版 `tools/agent-usage-insights` 路径
+2. `$CODEX_HOME/tools/agent-usage-insights` 本机运行副本
+3. `$HOME/workspace/ai/ai-workspace/system/tools/agent-usage-insights`
+4. 旧版 `tools/agent-usage-insights` 路径
 
 无需 `.venv`；helper 会选择可用 Python，并把工具的 `src` 加入 `PYTHONPATH`。
+底层工具的主真源仍是 `ai-workspace/system/tools/agent-usage-insights`；本机安装 Skill 时可把已验证版本同步到 `$CODEX_HOME/tools/agent-usage-insights`，避免当前 `ai-workspace` 工作树停在其他分支时误用旧解析器。
 
 可用环境变量：
 
