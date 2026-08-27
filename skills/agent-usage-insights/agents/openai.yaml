@@ -1,0 +1,7 @@
+interface:
+  display_name: "Agent Usage Insights"
+  short_description: "生成严格窗口的 Codex 私有使用洞察"
+  default_prompt: "Use $agent-usage-insights to analyze my local Codex usage with an explicit event window and produce a private report."
+
+policy:
+  allow_implicit_invocation: true

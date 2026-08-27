@@ -1,7 +1,7 @@
 # Seashell's Skills
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Public Skills](https://img.shields.io/badge/public_skills-11-brightgreen.svg)](#skill-清单)
+[![Public Skills](https://img.shields.io/badge/public_skills-12-brightgreen.svg)](#skill-清单)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-orange.svg)](CONTRIBUTING.md)
 
 可复用的 AI Agent 技能（Skill）集合，面向 Claude Code、Codex 以及其他支持技能机制的 Agent 工具。
@@ -26,6 +26,7 @@ Skill 是给 AI Agent 读的能力说明书：每个技能以一份 `SKILL.md` �
 | Skill 建设 | [skill-creator](skills/skill-creator/) | 创建、改造、评估或优化一个 skill | `SKILL.md`、测试 prompt、评测结果 |
 | 技术决策 | [tech-plan-pairing](skills/tech-plan-pairing/) | 技术方向还模糊，需要多轮澄清和方案取舍 | 技术方案、决策记录、待验证项 |
 | 知识治理 | [project-knowledge-manager](skills/project-knowledge-manager/) | 项目 README、AGENTS、docs、模块知识需要归位或审计 | 初始化计划、文档更新、审计报告 |
+| 使用复盘 | [agent-usage-insights](skills/agent-usage-insights/) | 想低成本盘点 Codex 阶段使用、严格比较窗口或复盘精确 ChatGPT 调度链 | 本地 HTML、机器指标、独立洞察 |
 | 使用复盘 | [insights-aggregator](skills/insights-aggregator/) | 想分析 Claude Code 与 Codex 的本地使用情况 | 跨工具洞察 HTML 报告 |
 | 行业资讯 | [web-ai-daily-paper](skills/web-ai-daily-paper/) | 生成 AI/Web 早报、审阅入选与落选候选、用人工理由持续校准策略 | 中文早报、Review、证据包、反馈 case |
 | 代码审查 | [fe-code-review](skills/fe-code-review/) | 前端分支、PR 或版本实现需要版本级审查 | 中文 review 报告、风险与合并建议 |
@@ -198,6 +199,18 @@ scan
 **依赖与边界**：需要 Python 3；只读本地会话记录，报告会包含项目路径和会话摘要，分享前需要自行检查敏感信息。
 
 详情：[README](skills/insights-aggregator/README.md) / [SKILL.md](skills/insights-aggregator/SKILL.md)
+
+### agent-usage-insights
+
+**定位**：单 Codex 的严格事件窗口使用盘点。
+
+**适合场景**：查询上次盘点截止时间、生成某个完整阶段的固定 HTML、比较相邻等长窗口，或复盘 Codex→ChatGPT 的精确 task ID 调度链。
+
+**产出效果**：本地自包含 HTML、机器可读指标、可选当前 Agent 语义分析；默认排除内部线程，可纳入归档会话，并披露 Token 与来源不可观测边界。
+
+**边界**：默认不联网、不输出 transcript 正文；需要 Claude Code + Codex 全量跨工具 facet 时使用 `insights-aggregator`。
+
+详情：[README](skills/agent-usage-insights/README.md) / [SKILL.md](skills/agent-usage-insights/SKILL.md)
 
 ### web-ai-daily-paper
 
