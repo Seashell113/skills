@@ -35,7 +35,7 @@ from datetime import datetime, timedelta, timezone
 from codex_segments import read_owned_codex_stream
 
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 INTERRUPT_MARKER = "[Request interrupted by user"
 # Claude Code 把 /command 的本地执行记录也写成 user 消息，不是人类输入
 CLAUDE_NOISE_RE = re.compile(
@@ -389,7 +389,8 @@ def codex_parse(path, session_id, byte_limit=None, expected_sha256=None):
         elif t == "turn_context":
             current_turn_id = p.get("turn_id") or current_turn_id
             project_path = project_path or p.get("cwd") or ""
-            # 模型与推理强度（low/medium/high/xhigh），每轮记录一次
+            # 模型与推理强度配置。一个 native turn 可能重复写入相同 turn_context，
+            # 计数在 compute_meta 中按 turn_id 去重。
             if p.get("model") or p.get("effort"):
                 events.append({"kind": "turn", "ts": ts, "model": p.get("model"),
                                "effort": p.get("effort"), "thinking": None,
@@ -514,6 +515,7 @@ def compute_meta(s: ParsedSession, source_info):
     models, efforts = {}, {}
     thinking_turns = thinking_total = 0
     auto_review_turns = 0
+    seen_turn_ids = set()
     first_prompt = ""
     cat_map = CLAUDE_TOOL_CATEGORY if s.agent == "claude-code" else CODEX_TOOL_CATEGORY
     last_assistant_ts = None
@@ -586,6 +588,13 @@ def compute_meta(s: ParsedSession, source_info):
         elif k == "interrupt":
             interruptions += 1
         elif k == "turn":
+            # 实测同一 native turn_id 会重复出现相同的 turn_context；同一 native turn
+            # 只保留一份模型/强度配置。没有 turn_id 的旧记录不能安全去重，仍按记录计。
+            turn_id = ev.get("turn_id")
+            if turn_id:
+                if turn_id in seen_turn_ids:
+                    continue
+                seen_turn_ids.add(turn_id)
             if ev.get("model") == "codex-auto-review":
                 # 自动评审通道：内部流量，不计入用户的模型/强度分布
                 auto_review_turns += 1
@@ -660,8 +669,8 @@ def compute_meta(s: ParsedSession, source_info):
         "files_modified": len(files_modified),
         "message_hours": message_hours,
         "user_message_timestamps": user_ts,
-        "models": models,                    # 模型名 → 轮次（Claude 为 assistant 消息数）
-        "reasoning_effort": efforts,         # 仅 Codex：low/medium/high/xhigh → 轮次
+        "models": models,                    # Claude assistant 消息 / Codex 去重 native turn 配置记录
+        "reasoning_effort": efforts,         # 仅 Codex：按 turn_id 去重的 native turn 配置记录
         "thinking_turns": thinking_turns,    # 仅 Claude：含 thinking 块的轮次
         "thinking_total": thinking_total,
         "src_mtime": source_info.get("mtime"),

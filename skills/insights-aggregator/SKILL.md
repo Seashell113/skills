@@ -60,10 +60,10 @@ python3 {skill_dir}/scripts/collect.py \
 ### Step 3 — 聚合（脚本，无 LLM）
 
 ```bash
-python3 {skill_dir}/scripts/aggregate.py [--days 30]
+python3 {skill_dir}/scripts/aggregate.py [--days 30] [--as-of 2026-08-27T13:56:10.186054+00:00]
 ```
 
-`--days` 必须与 Step 1 一致（统计与语义同窗，报告才是真正的"阶段报告"；`--days 0` 为全历史）。读 stdout：`facets_used`、`cross_tool_overlap_events`、`handoff_direction_counts`。无效的 facet 文件会被静默忽略；若 `facets_used` 明显小于已提取数，检查 facet JSON 格式。
+`--days` 必须与 Step 1 一致（统计与语义同窗，报告才是真正的"阶段报告"；`--days 0` 为全历史）。冻结重跑时传原报告的 `generated_at` 给 `--as-of`，避免窗口随当前日期漂移。读 stdout：`facets_used`、`cross_tool_overlap_events`、`handoff_direction_counts`。无效的 facet 文件会被静默忽略；若 `facets_used` 明显小于已提取数，检查 facet JSON 格式。
 
 ### Step 4 — 洞察生成（并行子 agent + 1 个串行）
 
@@ -93,11 +93,11 @@ python3 {skill_dir}/scripts/render.py
 
 相当一部分用户跨工具混用的动因是**成本**而非能力偏好：Codex 走官方模型，Claude Code 则常被接入低成本第三方/国产模型（kimi / deepseek / glm / qwen…）来跑可控任务。本 skill 已采集相应信号，分析时不要默认两个工具都跑官方高价模型：
 
-- `models`：每会话的实际模型分布（Claude 取 `assistant.message.model`——接国产模型时记录的就是真实模型名；Codex 取 `turn_context.model`）。
-- `reasoning_effort`：Codex 每轮的推理强度（low/medium/high/xhigh）。
+- `models`：每会话的实际模型分布（Claude 取 `assistant.message.model`；Codex 取 `turn_context.model`）。Codex 的单位是去重后的 native turn（按 `turn_id`）配置记录；缺失 `turn_id` 的旧记录保留为单条记录。
+- `reasoning_effort`：Codex 的推理强度配置（当前已知 low/medium/high/xhigh/max/ultra；新档位会单列展示）。单位同上。
 - `thinking_turns/thinking_total`：Claude 侧带 thinking 块的轮次占比，作为推理深度近似。
 
-洞察层（`tool_comparison`）会基于这些信号评估**任务-模型/推理强度匹配度**：简单任务是否开了过高强度（浪费时间）、复杂任务是否用了弱模型/低强度（返工风险），并给出调档建议。
+模型/强度分布只能作为人工复核的配置线索。现有数据不能把档位逐轮连接到设计、执行、审查阶段和结果，不能据此断言 max 导致慢、过度设计或返工；需要该结论时另行采集阶段与结果归因证据。
 
 ## 隐私红线
 
@@ -115,7 +115,7 @@ python3 {skill_dir}/scripts/render.py
 - Claude 的 `/command` 本地执行记录（`<command-name>`、`<local-command-stdout>` 等）不计入人类消息。
 - Codex 工具报错统计豁免 `rg`/`grep`/`diff`/`test` 等命令的退出码 1（无匹配/有差异是预期语义，不算失败），避免报错数虚高误导摩擦分析。
 - 跨工具项目对齐用路径尾部两段作为键（同一项目在不同根路径下也能关联接力）。
-- **内部会话过滤**：Codex 的 spawn_agent 子会话（`thread_source=subagent`）和纯自动评审会话（仅 `codex-auto-review` 轮次）标记为 `is_internal`，统计/facet/并行检测默认排除并在报告中单独计数——否则会话数、low 档位占比和"并行多开"信号都会被内部执行拓扑严重虚高。混在用户会话里的 auto-review 轮次也不计入模型/强度分布。旧版本 Codex 会话无 `thread_source` 字段，保守按用户会话处理。
+- **内部会话过滤**：Codex 的 spawn_agent 子会话（`thread_source=subagent`）和纯自动评审会话（仅 `codex-auto-review` 轮次）标记为 `is_internal`，根会话统计、成功率、facet 与并行检测默认排除；报告单列内部模型/强度分布，供核对轻量 subagent 的实际使用。混在用户会话里的 auto-review 轮次不计入模型/强度分布。旧版本 Codex 会话无 `thread_source` 字段，保守按用户会话处理。
 - facet 提示词新增 `user_instructions_to_agent`（源码类型里有但从未填充），用于支撑 CLAUDE.md/AGENTS.md 配置建议。
 - 跨工具部分（overlap 区分跨工具并行、同项目 45 分钟接力检测、项目×工具矩阵、`tool_comparison` 与 `cross_tool_workflows` 两个 section、at_a_glance 的 `tool_division`）为本 skill 新增能力。
 
