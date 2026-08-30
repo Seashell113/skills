@@ -45,11 +45,12 @@ LABEL_MAP = {
     "web": "联网", "agent": "子代理", "plan": "规划", "mcp": "MCP",
     "browser": "浏览器", "skill": "技能", "other": "其他",
     # 推理强度
-    "low": "低", "medium": "中", "high": "高", "xhigh": "极高",
+    "low": "低", "medium": "中", "high": "高", "xhigh": "极高", "max": "max", "ultra": "ultra",
 }
 SATISFACTION_ORDER = ["frustrated", "dissatisfied", "likely_satisfied", "satisfied", "happy", "unsure"]
 OUTCOME_ORDER = ["not_achieved", "partially_achieved", "mostly_achieved", "fully_achieved", "unclear_from_transcript"]
-EFFORT_ORDER = ["low", "medium", "high", "xhigh"]
+EFFORT_ORDER = ["low", "medium", "high", "xhigh", "max", "ultra"]
+HIGH_EFFORTS = {"high", "xhigh", "max", "ultra"}
 AGENT_BADGE = {"claude-code": ("Claude Code", "#d97706"), "codex": ("Codex", "#0ea5e9")}
 
 
@@ -78,6 +79,9 @@ def top_key(d):
 def bar_chart(data, color, max_items=6, fixed_order=None, raw_labels=False):
     if fixed_order:
         entries = [(k, data[k]) for k in fixed_order if data.get(k, 0) > 0]
+        # 新档位不应因固定顺序表滞后而消失，已知档位后按出现次数展示。
+        entries.extend(sorted(((k, v) for k, v in data.items()
+                               if k not in fixed_order and v > 0), key=lambda kv: -kv[1]))
     else:
         entries = sorted(data.items(), key=lambda kv: -kv[1])[:max_items]
     if not entries:
@@ -91,6 +95,11 @@ def bar_chart(data, color, max_items=6, fixed_order=None, raw_labels=False):
             f'<div class="bar-track"><div class="bar-fill" style="width:{v / mx * 100:.0f}%;background:{color}"></div></div>'
             f'<div class="bar-value">{v}</div></div>')
     return "".join(rows)
+
+
+def high_effort_ratio(efforts):
+    total = sum(efforts.values()) or 1
+    return sum(efforts.get(k, 0) for k in HIGH_EFFORTS) * 100 // total
 
 
 def rt_histogram(times):
@@ -198,8 +207,7 @@ def main():
         main_model = top_key(a.get("models") or {}) or "—"
         if a.get("reasoning_effort"):
             eff = a["reasoning_effort"]
-            hi = sum(eff.get(k, 0) for k in ("high", "xhigh"))
-            depth = f"高强度 {hi * 100 // (sum(eff.values()) or 1)}%"
+            depth = f"高强度 {high_effort_ratio(eff)}%"
         elif a.get("thinking_total"):
             depth = f"深思 {a['thinking_turns'] * 100 // a['thinking_total']}%"
         else:
@@ -368,10 +376,30 @@ def main():
     # ---- 图表 ----
     agent_sessions = {AGENT_BADGE.get(a, (a,))[0]: g2["total_sessions"] for a, g2 in by_agent.items()}
     codex_effort = (by_agent.get("codex") or {}).get("reasoning_effort") or {}
+    internal = agg.get("internal_model_effort") or {}
+    root_mix = (f"根会话：混用模型 {c.get('sessions_with_mixed_models', 0)} 个；"
+                f"混用推理强度 {c.get('sessions_with_mixed_reasoning_effort', 0)} 个。")
+    internal_mix = (f"内部会话：{internal.get('total_sessions', 0)} 个；"
+                    "其模型/强度单独统计，未混入根会话总览、成功率或分母。")
+    internal_charts = []
+    if internal.get("models"):
+        internal_charts.append(("内部会话模型配置记录", bar_chart(internal["models"], "#0ea5e9", 8, raw_labels=True)))
+    if internal.get("reasoning_effort"):
+        internal_charts.append(("内部会话 Codex 推理强度", bar_chart(internal["reasoning_effort"], "#a855f7", fixed_order=EFFORT_ORDER)))
+    internal_charts_html = "".join(
+        f'<div class="chart-card"><div class="chart-title">{esc(title)}</div>{body}</div>'
+        for title, body in internal_charts
+    )
+    model_effort_html = (f'<h2 id="section-model-effort">模型与推理强度口径</h2>'
+                         f'<div class="narrative"><p>{esc(root_mix)}</p><p>{esc(internal_mix)}</p>'
+                         '<p>Codex 的单位为去重后的 native turn（按 turn_id）配置记录；'
+                         '缺少 turn_id 的旧记录按单条配置记录保留。数据没有把档位逐轮连接到设计、执行、审查阶段或结果，'
+                         '不能据此判断 max 导致慢或过度设计。</p></div>'
+                         f'<div class="charts-row">{internal_charts_html}</div>')
     charts = [
         ("各工具会话数", bar_chart(agent_sessions, "#0ea5e9", raw_labels=True)) if multi_tool else None,
-        ("模型构成（按轮次）", bar_chart(c.get("models") or {}, "#14b8a6", 8, raw_labels=True)),
-        ("Codex 推理强度分布", bar_chart(codex_effort, "#a855f7", fixed_order=EFFORT_ORDER)) if codex_effort else None,
+        ("模型记录构成（Codex 为去重 native turn）", bar_chart(c.get("models") or {}, "#14b8a6", 8, raw_labels=True)),
+        ("Codex 推理强度配置（去重 native turn）", bar_chart(codex_effort, "#a855f7", fixed_order=EFFORT_ORDER)) if codex_effort else None,
         ("工具行为类别", bar_chart(c.get("tool_category_counts") or {}, "#3b82f6", 9)),
         ("任务目标", bar_chart(c["goal_categories"], "#10b981", 8)),
         ("涉及语言", bar_chart(c["languages"], "#f59e0b", 8)),
@@ -396,7 +424,7 @@ def main():
            ("#section-usage", "协作风格"), ("#section-toolcmp", "分工对比") if multi_tool else None,
            ("#section-wins", "亮点"), ("#section-friction", "摩擦"),
            ("#section-features", "建议"), ("#section-crosstool", "跨工具组合") if multi_tool else None,
-           ("#section-horizon", "未来"), ("#section-charts", "图表")]
+           ("#section-horizon", "未来"), ("#section-model-effort", "模型口径"), ("#section-charts", "图表")]
     toc_html = "".join(f'<a href="{a}">{t}</a>' for x in toc if x for a, t in [x])
 
     css = """
@@ -519,7 +547,7 @@ def main():
 <style>{css}</style></head>
 <body><div class="container">
 <h1>Agent 使用洞察报告</h1>
-<div class="subtitle">{esc(agents_label)} · {esc(window_label)}（{esc(c['date_range'].get('start'))} 至 {esc(c['date_range'].get('end'))}）{esc(internal_note)} · 生成于 {date.today().isoformat()}</div>
+<div class="subtitle">{esc(agents_label)} · {esc(window_label)}（{esc(c['date_range'].get('start'))} 至 {esc(c['date_range'].get('end'))}）{esc(internal_note)} · 生成于 {esc((agg.get('generated_at') or date.today().isoformat())[:10])}</div>
 <div class="nav-toc">{toc_html}</div>
 <div class="stats-row">{stats_html}</div>
 {glance_html}
@@ -532,6 +560,7 @@ def main():
 {sg_html}
 {cw_html}
 {oh_html}
+{model_effort_html}
 <h2 id="section-charts">数据全景</h2>
 <div class="charts-row">{charts_html}{matrix_html}</div>
 {fe_html}

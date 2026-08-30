@@ -91,15 +91,15 @@
 
 config_additions 的重点：**优先选"Repeated user instructions to agents"里出现多次的指令**——用户在 2+ 个会话里对 agent 说过同样的话，就不该再重复。对两个工具都有用的指令用 `target_file: "both"`（共享内容放 AGENTS.md，CLAUDE.md 引用它）。条数按数据伸缩：config_additions 3-6 条（重复指令有多少条值得沉淀就给多少条）、features_to_try 2-4 条、usage_patterns 3-5 条；建议是本报告的核心价值，有据可依时尽量充分，但不为凑数编造。
 
-另外结合 Context notes / 模型数据考虑**模型与推理强度调优**：如果发现任务-模型错配（简单任务开高强度、复杂任务用弱模型），可以在 usage_patterns 里给一条具体的默认值建议（哪类任务值得开 `xhigh`、哪类任务用 `low` + 国产模型就够）。
+模型/强度数据只是配置分布：没有逐轮阶段和结果归因时，不要写“max 导致慢/过度设计”或某档位导致返工。若给默认档位建议，明确它是待验证的工作约定，不是由当前统计证明的因果结论。
 
 ## 6. tool_comparison（工具对比，跨工具新增）
 
 分析 per-agent 对比数据，描述该用户的两个编程 agent 实际上是如何被差异化使用的。
 
-重要背景——成本驱动的混用：用户同时用两个工具的常见原因是**成本控制**而非单纯能力偏好：Codex 走官方模型，Claude Code 常被接入更便宜的第三方/国产模型（kimi / deepseek / glm / qwen…）。先看 `models_by_turns`——如果 Claude Code 出现这类模型名，就用这个视角解读分工（便宜可控的任务 → Claude Code + 国产模型；重活/复杂活 → 官方模型）。不要默认两个工具都跑高价模型。
+重要背景——成本驱动的混用：用户同时用两个工具的常见原因是**成本控制**而非单纯能力偏好：Codex 走官方模型，Claude Code 常被接入更便宜的第三方/国产模型（kimi / deepseek / glm / qwen…）。先看 `models_by_records`——如果 Claude Code 出现这类模型名，就用这个视角解读分工（便宜可控的任务 → Claude Code + 国产模型；重活/复杂活 → 官方模型）。不要默认两个工具都跑高价模型。
 
-同时用 Session summaries 里每行的 [agent|model|effort|active_min] 标签评估**任务-模型/推理强度匹配度**：找出 (a) 简单任务却用了不必要的高推理强度或高价模型；(b) 复杂任务用了弱模型或低强度、导致摩擦/返工。
+Session summaries 的 [agent|model|effort|active_min] 仅支持人工查看配置分布。不要把档位与设计、执行、审查阶段或结果建立未经采集的连接，也不要因 active_min 较长就归因给 max/ultra。
 
 输出 JSON schema：
 {

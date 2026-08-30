@@ -35,7 +35,17 @@ python3 {skill_dir}/scripts/collect.py [--days 30] [--max-facets 50]
 
 窗口语义：SessionMeta 始终全量增量维护（便宜）；facet 只对窗口内的实质会话提取（新→旧，**不向窗口外回填**）。已提取过但 resume 后大幅续写（消息 +5 条以上）的会话会自动重新入队。
 
-读 stdout JSON：关注 `metas_by_agent`（两个工具是否都有数据）、`substantive_in_window` / `facets_already_cached` / `pending_facets`（窗口内总数 / 已有缓存 / 本次待提取）、`note_remaining_uncached`（>0 说明还有历史会话未解析 meta，可提高 `--max-load` 再跑一次）。
+读 stdout JSON：关注 `metas_by_agent`（两个工具是否都有数据）、`substantive_in_window` / `facets_already_cached` / `pending_facets`（窗口内总数 / 已有缓存 / 本次待提取）、`note_remaining_uncached`（>0 说明还有历史会话未解析 meta，可提高 `--max-load` 再跑一次）。同时检查 `codex_ownership.owner_leakage_lines`、`invalid_json_lines` 和 `result_call_link_rate`；存在非零 owner 泄漏或快照校验失败时，不继续生成洞察。
+
+需要审计级复现时，先由调用方生成包含 `path`、`session_id`、`byte_length`、`mtime_ns`、`sha256` 和 `snapshot_id` 的私密 Codex snapshot manifest，再传入：
+
+```bash
+python3 {skill_dir}/scripts/collect.py \
+  --codex-snapshot-manifest /path/to/snapshot-manifest.json \
+  --max-load 2000
+```
+
+采集器只读取每个 rollout 的冻结字节前缀，并验证 SHA-256；不会读取 cutoff 后新增内容。
 
 ### Step 2 — Facet 提取（并行子 agent）
 
@@ -50,10 +60,10 @@ python3 {skill_dir}/scripts/collect.py [--days 30] [--max-facets 50]
 ### Step 3 — 聚合（脚本，无 LLM）
 
 ```bash
-python3 {skill_dir}/scripts/aggregate.py [--days 30]
+python3 {skill_dir}/scripts/aggregate.py [--days 30] [--as-of 2026-08-27T13:56:10.186054+00:00]
 ```
 
-`--days` 必须与 Step 1 一致（统计与语义同窗，报告才是真正的"阶段报告"；`--days 0` 为全历史）。读 stdout：`facets_used`、`cross_tool_overlap_events`、`handoff_direction_counts`。无效的 facet 文件会被静默忽略；若 `facets_used` 明显小于已提取数，检查 facet JSON 格式。
+`--days` 必须与 Step 1 一致（统计与语义同窗，报告才是真正的"阶段报告"；`--days 0` 为全历史）。冻结重跑时传原报告的 `generated_at` 给 `--as-of`，避免窗口随当前日期漂移。读 stdout：`facets_used`、`cross_tool_overlap_events`、`handoff_direction_counts`。无效的 facet 文件会被静默忽略；若 `facets_used` 明显小于已提取数，检查 facet JSON 格式。
 
 ### Step 4 — 洞察生成（并行子 agent + 1 个串行）
 
@@ -75,7 +85,7 @@ python3 {skill_dir}/scripts/render.py
 
 ## 增量与缓存
 
-- SessionMeta 按 `(agent, session_id)` 缓存，源 jsonl 文件 mtime 变化自动重算（全量增量维护）。
+- SessionMeta 按 `(agent, session_id)` 缓存，源 jsonl 文件的 mtime、mtime_ns、size、snapshot id 或 SHA-256 变化时自动重算（全量增量维护）。
 - facet 按 `(agent, session_id)` 永久缓存，仅当会话 resume 后大幅续写（消息 +5 条以上，依据 facet 内 `_user_message_count` 戳）才重提。
 - 同窗口重复运行、或不同时期的窗口有重叠时，重叠部分直接复用缓存，只为新会话付 LLM 成本。强制全量重提：删 `~/.agent-insights/cache/facets/`。
 
@@ -83,11 +93,11 @@ python3 {skill_dir}/scripts/render.py
 
 相当一部分用户跨工具混用的动因是**成本**而非能力偏好：Codex 走官方模型，Claude Code 则常被接入低成本第三方/国产模型（kimi / deepseek / glm / qwen…）来跑可控任务。本 skill 已采集相应信号，分析时不要默认两个工具都跑官方高价模型：
 
-- `models`：每会话的实际模型分布（Claude 取 `assistant.message.model`——接国产模型时记录的就是真实模型名；Codex 取 `turn_context.model`）。
-- `reasoning_effort`：Codex 每轮的推理强度（low/medium/high/xhigh）。
+- `models`：每会话的实际模型分布（Claude 取 `assistant.message.model`；Codex 取 `turn_context.model`）。Codex 的单位是去重后的 native turn（按 `turn_id`）配置记录；缺失 `turn_id` 的旧记录保留为单条记录。
+- `reasoning_effort`：Codex 的推理强度配置（当前已知 low/medium/high/xhigh/max/ultra；新档位会单列展示）。单位同上。
 - `thinking_turns/thinking_total`：Claude 侧带 thinking 块的轮次占比，作为推理深度近似。
 
-洞察层（`tool_comparison`）会基于这些信号评估**任务-模型/推理强度匹配度**：简单任务是否开了过高强度（浪费时间）、复杂任务是否用了弱模型/低强度（返工风险），并给出调档建议。
+模型/强度分布只能作为人工复核的配置线索。现有数据不能把档位逐轮连接到设计、执行、审查阶段和结果，不能据此断言 max 导致慢、过度设计或返工；需要该结论时另行采集阶段与结果归因证据。
 
 ## 隐私红线
 
@@ -97,6 +107,7 @@ python3 {skill_dir}/scripts/render.py
 ## 已知边界（与源码的有意差异）
 
 - **历史窗口不对称**：Claude Code 默认自动清理约 30 天前的会话记录（`cleanupPeriodDays`），Codex 全量保留。跨工具对比时看"使用模式"而非绝对数量；洞察提示词中已要求 LLM 注意此口径。建议用户在 Claude `settings.json` 中调大 `cleanupPeriodDays` 以积累数据。
+- **Codex rollout 不是天然的一会话一文件**：fork、resume 或 subagent 文件可能内嵌父会话历史。采集器以文件名和首条物理 `session_meta` 校验身份，区分 owned live、imported history 与 orphan；导入历史不计入物理会话指标。
 - 长会话不做 LLM 分块摘要，改为 120k 字符头尾截断（子 agent 上下文足够大，没必要多付一层摘要成本）。
 - Edit 行数统计用 `difflib`（对齐 `diffLines` 语义）；Codex 行数从 apply_patch 的 patch 文本解析。
 - Codex 的 token 口径取 `input_tokens - cached_input_tokens`，对齐 Claude 的"不含缓存读取"口径。
@@ -104,7 +115,7 @@ python3 {skill_dir}/scripts/render.py
 - Claude 的 `/command` 本地执行记录（`<command-name>`、`<local-command-stdout>` 等）不计入人类消息。
 - Codex 工具报错统计豁免 `rg`/`grep`/`diff`/`test` 等命令的退出码 1（无匹配/有差异是预期语义，不算失败），避免报错数虚高误导摩擦分析。
 - 跨工具项目对齐用路径尾部两段作为键（同一项目在不同根路径下也能关联接力）。
-- **内部会话过滤**：Codex 的 spawn_agent 子会话（`thread_source=subagent`）和纯自动评审会话（仅 `codex-auto-review` 轮次）标记为 `is_internal`，统计/facet/并行检测默认排除并在报告中单独计数——否则会话数、low 档位占比和"并行多开"信号都会被内部执行拓扑严重虚高。混在用户会话里的 auto-review 轮次也不计入模型/强度分布。旧版本 Codex 会话无 `thread_source` 字段，保守按用户会话处理。
+- **内部会话过滤**：Codex 的 spawn_agent 子会话（`thread_source=subagent`）和纯自动评审会话（仅 `codex-auto-review` 轮次）标记为 `is_internal`，根会话统计、成功率、facet 与并行检测默认排除；报告单列内部模型/强度分布，供核对轻量 subagent 的实际使用。混在用户会话里的 auto-review 轮次不计入模型/强度分布。旧版本 Codex 会话无 `thread_source` 字段，保守按用户会话处理。
 - facet 提示词新增 `user_instructions_to_agent`（源码类型里有但从未填充），用于支撑 CLAUDE.md/AGENTS.md 配置建议。
 - 跨工具部分（overlap 区分跨工具并行、同项目 45 分钟接力检测、项目×工具矩阵、`tool_comparison` 与 `cross_tool_workflows` 两个 section、at_a_glance 的 `tool_division`）为本 skill 新增能力。
 
