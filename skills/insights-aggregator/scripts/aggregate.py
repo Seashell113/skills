@@ -90,6 +90,8 @@ def aggregate_group(metas, facets_by_key):
         "days_active": 0, "messages_per_day": 0, "message_hours": [],
         "models": {}, "reasoning_effort": {},
         "thinking_turns": 0, "thinking_total": 0,
+        "sessions_with_mixed_models": 0,
+        "sessions_with_mixed_reasoning_effort": 0,
     }
     dates, rts = [], []
     for m in metas:
@@ -117,6 +119,10 @@ def aggregate_group(metas, facets_by_key):
                 bump(r[key], k, v)
         r["thinking_turns"] += m.get("thinking_turns") or 0
         r["thinking_total"] += m.get("thinking_total") or 0
+        if len(m.get("models") or {}) > 1:
+            r["sessions_with_mixed_models"] += 1
+        if len(m.get("reasoning_effort") or {}) > 1:
+            r["sessions_with_mixed_reasoning_effort"] += 1
         for flag, key in (("uses_task_agent", "sessions_using_task_agent"),
                           ("uses_mcp", "sessions_using_mcp"),
                           ("uses_web_search", "sessions_using_web_search"),
@@ -298,8 +304,8 @@ def build_context(agg, facets):
         per[agent] = {
             "sessions": a["total_sessions"], "hours": a["total_duration_hours"],
             "user_messages": a["total_messages"], "git_commits": a["git_commits"],
-            "models_by_turns": top(a["models"], 8),
-            "reasoning_effort_by_turns": a["reasoning_effort"],
+            "models_by_records": top(a["models"], 8),
+            "reasoning_effort_by_native_turn": a["reasoning_effort"],
             "thinking_block_ratio": (round(a["thinking_turns"] / a["thinking_total"], 2)
                                      if a["thinking_total"] else None),
             "top_tools": top(a["tool_counts"], 8),
@@ -332,19 +338,26 @@ def build_context(agg, facets):
         lines.append(f"- 本报告是**阶段性窗口报告**：只覆盖最近 {w['days']} 天（{w.get('cutoff')} 之后）的会话，"
                      "统计与语义同窗。叙事请立足'这个阶段'，不要写成全历史总结。")
     lines.append("- 跨工具混用的常见动因是**成本控制**而非单纯能力偏好：Codex 走官方模型，"
-                 "Claude Code 可方便地接入低成本第三方/国产模型（看 models_by_turns 即可判断是否如此——"
+                 "Claude Code 可方便地接入低成本第三方/国产模型（看 models_by_records 即可判断是否如此——"
                  "若出现 kimi/deepseek/glm 等模型名，说明用户在用国产模型跑可控任务）。评价分工时请基于这一动因。")
-    lines.append("- reasoning_effort 仅 Codex 提供（low/medium/high/xhigh，按轮次计）；"
-                 "thinking_block_ratio 是 Claude 侧带思考块的轮次占比，是推理深度的近似信号。")
-    lines.append("- Session summaries 每行带 [agent|model|effort|active_min] 标签：请结合任务内容评估"
-                 "**任务-模型/推理强度匹配度**——重点找两类错配：简单任务用了过高推理强度（浪费时间），"
-                 "复杂任务用了弱模型或过低强度（返工风险）。")
+    lines.append("- Codex 的 models / reasoning_effort 单位是**去重后的 native turn（按 turn_id）配置记录**；"
+                 "缺少 turn_id 的旧记录保留为单条配置记录。Claude 的 models 单位仍是 assistant 消息。"
+                 "thinking_block_ratio 是 Claude 侧带思考块的消息占比，是推理深度的近似信号。")
+    lines.append("- 当前数据没有把档位逐 turn 连接到设计、执行、审查阶段或最终结果；不要据此断言 max 导致慢、"
+                 "造成过度设计，或某档位导致返工。模型/强度只可作为配置分布与人工复核线索。")
     n_internal = agg.get("internal_sessions_excluded") or 0
     if n_internal:
         b = agg.get("internal_breakdown") or {}
         lines.append(f"- 已排除 {n_internal} 个**内部会话**（spawn_agent 子代理 {b.get('subagent', 0)} 个、"
                      f"自动评审 {b.get('auto_review', 0)} 个）：它们不是用户发起的交互，"
-                     "所有统计均只反映用户主会话。但'大量使用子代理/自动评审'本身是值得在叙事中提及的工作方式信号。")
+                     "根会话总览、成功率和分母均不含它们；内部模型/强度分布只在专题中单列。")
+    internal = agg.get("internal_model_effort") or {}
+    if internal.get("total_sessions"):
+        lines.append("- 内部会话模型/强度（不计入根会话）："
+                     + json.dumps({"sessions": internal["total_sessions"],
+                                   "models_by_native_turn": internal["models"],
+                                   "reasoning_effort_by_native_turn": internal["reasoning_effort"]},
+                                  ensure_ascii=False))
 
     lines.append("\n## Session summaries")
     for s in c["session_summaries"]:
@@ -373,8 +386,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--home", default=os.path.expanduser("~/.agent-insights"))
     ap.add_argument("--days", type=int, default=30, help="报告窗口：最近 N 天（0=全历史），统计与语义同窗")
+    ap.add_argument("--as-of", help="冻结窗口截止时间（ISO 8601；默认当前 UTC 时间）")
     args = ap.parse_args()
     home = args.home
+
+    as_of = parse_iso(args.as_of) if args.as_of else datetime.now(timezone.utc)
+    if as_of is None:
+        ap.error("--as-of 必须是 ISO 8601 时间，例如 2026-08-27T13:56:10.186054+00:00")
+    as_of = as_of.astimezone(timezone.utc)
 
     metas = []
     for agent in ("claude-code", "codex"):
@@ -382,7 +401,7 @@ def main():
     # 窗口过滤：统计与语义使用同一时间窗，保证报告叙事口径一致
     cutoff_iso = ""
     if args.days > 0:
-        cutoff_iso = (datetime.now(timezone.utc) - timedelta(days=args.days)) \
+        cutoff_iso = (as_of - timedelta(days=args.days)) \
             .isoformat().replace("+00:00", "Z")
         metas = [m for m in metas if m["start_time"] >= cutoff_iso]
     facets_raw = []
@@ -420,13 +439,20 @@ def main():
     used_facets = [facets_by_key[k] for k in ((m["agent"], m["session_id"]) for m in metas)
                    if k in facets_by_key]
 
+    internal_group = aggregate_group(internal, facets_by_key)
     agg = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "window": {"days": args.days, "cutoff": cutoff_iso[:10] if cutoff_iso else None},
+        "generated_at": as_of.isoformat(),
+        "window": {"days": args.days, "cutoff": cutoff_iso[:10] if cutoff_iso else None,
+                   "as_of": as_of.isoformat()},
         "internal_sessions_excluded": len(internal),
         "internal_breakdown": {
             "subagent": sum(1 for m in internal if m.get("thread_source") == "subagent"),
             "auto_review": sum(1 for m in internal if m.get("thread_source") != "subagent"),
+        },
+        "internal_model_effort": {
+            "total_sessions": internal_group["total_sessions"],
+            "models": internal_group["models"],
+            "reasoning_effort": internal_group["reasoning_effort"],
         },
         "combined": aggregate_group(metas, facets_by_key),
         "by_agent": {agent: aggregate_group([m for m in metas if m["agent"] == agent], facets_by_key)

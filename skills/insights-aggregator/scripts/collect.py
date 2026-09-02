@@ -32,7 +32,10 @@ import re
 import sys
 from datetime import datetime, timedelta, timezone
 
-SCHEMA_VERSION = 9
+from codex_segments import read_owned_codex_stream
+
+
+SCHEMA_VERSION = 11
 INTERRUPT_MARKER = "[Request interrupted by user"
 # Claude Code 把 /command 的本地执行记录也写成 user 消息，不是人类输入
 CLAUDE_NOISE_RE = re.compile(
@@ -117,7 +120,7 @@ def iso(dt):
 
 class ParsedSession:
     def __init__(self, agent, session_id, project_path, events, start, end,
-                 summary=None, source=None, thread_source=None):
+                 summary=None, source=None, thread_source=None, source_audit=None):
         self.agent = agent
         self.session_id = session_id
         self.project_path = project_path
@@ -127,6 +130,7 @@ class ParsedSession:
         self.summary = summary
         self.source = source  # codex: vscode / Codex Desktop / cli
         self.thread_source = thread_source  # codex: user / subagent / None(旧版本无此字段)
+        self.source_audit = source_audit or {}
 
 
 # ---------------------------- Claude Code 适配器 ----------------------------
@@ -303,7 +307,30 @@ CODEX_WRAPPER_RE = re.compile(r"^<(environment_context|user_instructions|permiss
 BENIGN_EXIT1_RE = re.compile(r"^\s*(rg|grep|egrep|fgrep|diff|cmp|test|\[)\b")
 
 
-def codex_scan(codex_dir):
+def codex_scan(codex_dir, snapshot_manifest=None):
+    if snapshot_manifest:
+        with open(snapshot_manifest, encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        snapshot_id = manifest.get("snapshot_id")
+        out = []
+        for item in manifest.get("files") or []:
+            path = item.get("path")
+            session_id = item.get("session_id")
+            if not path or not session_id:
+                continue
+            out.append({
+                "agent": "codex",
+                "session_id": session_id,
+                "path": path,
+                "mtime": item.get("mtime_ns", 0) / 1_000_000_000,
+                "mtime_ns": item.get("mtime_ns"),
+                "size": item.get("byte_length"),
+                "byte_length": item.get("byte_length"),
+                "sha256": item.get("sha256"),
+                "source_snapshot_id": snapshot_id,
+            })
+        return out
+
     root = os.path.join(codex_dir, "sessions")
     out = []
     if not os.path.isdir(root):
@@ -319,7 +346,9 @@ def codex_scan(codex_dir):
             except OSError:
                 continue
             out.append({"agent": "codex", "session_id": m.group(1),
-                        "path": p, "mtime": st.st_mtime, "size": st.st_size})
+                        "path": p, "mtime": st.st_mtime,
+                        "mtime_ns": st.st_mtime_ns, "size": st.st_size,
+                        "byte_length": st.st_size})
     return out
 
 
@@ -336,106 +365,144 @@ def _codex_patch_stats(patch_text, events, ts):
                    "input": {"_files": files, "_added": added, "_removed": removed}})
 
 
-def codex_parse(path, session_id):
+def codex_parse(path, session_id, byte_limit=None, expected_sha256=None):
     events, project_path, source = [], "", None
     start, thread_source = None, None
     call_cmds = {}  # call_id → 命令字符串，用于报错豁免判断
-    with open(path, encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                o = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            t, p = o.get("type"), o.get("payload") or {}
-            ts = parse_ts(o.get("timestamp"))
-            if t == "session_meta":
-                # resume 会追加新的 session_meta，start/cwd 以第一条为准
-                project_path = project_path or p.get("cwd") or ""
-                source = source or p.get("originator") or p.get("source")
-                thread_source = thread_source or p.get("thread_source")
-                start = start or ts
-            elif t == "turn_context":
-                project_path = project_path or p.get("cwd") or ""
-                # 模型与推理强度（low/medium/high/xhigh），每轮记录一次
-                if p.get("model") or p.get("effort"):
-                    events.append({"kind": "turn", "ts": ts, "model": p.get("model"),
-                                   "effort": p.get("effort"), "thinking": None})
-            elif t == "event_msg":
-                pt = p.get("type")
-                if pt == "user_message":
-                    txt = p.get("message") or ""
-                    if txt.strip() and not CODEX_WRAPPER_RE.match(txt.strip()):
-                        events.append({"kind": "user", "ts": ts, "text": txt})
-                elif pt == "token_count":
-                    info = p.get("info") or {}
-                    last = info.get("last_token_usage") or {}
-                    if last:
-                        # 对齐 Claude 口径：input 不含缓存读取
-                        tin = max(0, (last.get("input_tokens") or 0) - (last.get("cached_input_tokens") or 0))
-                        events.append({"kind": "tokens", "ts": ts, "tokens_in": tin,
-                                       "tokens_out": last.get("output_tokens") or 0})
-                elif pt == "turn_aborted" and p.get("reason") == "interrupted":
-                    events.append({"kind": "interrupt", "ts": ts})
-                elif pt == "web_search_end":
-                    events.append({"kind": "tool_use", "ts": ts, "tool": "web_search", "input": {}})
-            elif t == "response_item":
-                pt = p.get("type")
-                if pt == "message" and p.get("role") == "assistant":
-                    txt = " ".join(b.get("text", "") for b in p.get("content") or []
-                                   if isinstance(b, dict) and b.get("type") == "output_text")
-                    if txt.strip():
-                        events.append({"kind": "assistant_text", "ts": ts, "text": txt})
-                elif pt == "function_call":
-                    name = p.get("name") or "unknown"
-                    try:
-                        args = json.loads(p.get("arguments") or "{}")
-                        if not isinstance(args, dict):
-                            args = {}
-                    except (json.JSONDecodeError, TypeError):
+    current_turn_id = None
+    owned = read_owned_codex_stream(
+        path,
+        session_id,
+        byte_limit=byte_limit,
+        expected_sha256=expected_sha256,
+    )
+    for record in owned.records:
+        o = record.row
+        t, p = o.get("type"), o.get("payload") or {}
+        ts = parse_ts(o.get("timestamp"))
+        if t == "session_meta":
+            # 只会收到物理会话自己的 segment；导入的父会话历史已在上层排除。
+            project_path = project_path or p.get("cwd") or ""
+            source = source or p.get("originator") or p.get("source")
+            thread_source = thread_source or p.get("thread_source")
+            start = start or ts
+        elif t == "turn_context":
+            current_turn_id = p.get("turn_id") or current_turn_id
+            project_path = project_path or p.get("cwd") or ""
+            # 模型与推理强度配置。一个 native turn 可能重复写入相同 turn_context，
+            # 计数在 compute_meta 中按 turn_id 去重。
+            if p.get("model") or p.get("effort"):
+                events.append({"kind": "turn", "ts": ts, "model": p.get("model"),
+                               "effort": p.get("effort"), "thinking": None,
+                               "turn_id": current_turn_id})
+        elif t == "event_msg":
+            pt = p.get("type")
+            current_turn_id = p.get("turn_id") or current_turn_id
+            if pt == "user_message":
+                txt = p.get("message") or ""
+                if txt.strip() and not CODEX_WRAPPER_RE.match(txt.strip()):
+                    events.append({"kind": "user", "ts": ts, "text": txt,
+                                   "turn_id": current_turn_id})
+            elif pt == "token_count":
+                info = p.get("info") or {}
+                last = info.get("last_token_usage") or {}
+                if last:
+                    # 对齐 Claude 口径：input 不含缓存读取
+                    tin = max(0, (last.get("input_tokens") or 0) - (last.get("cached_input_tokens") or 0))
+                    events.append({"kind": "tokens", "ts": ts, "tokens_in": tin,
+                                   "tokens_out": last.get("output_tokens") or 0,
+                                   "turn_id": current_turn_id})
+            elif pt == "turn_aborted" and p.get("reason") == "interrupted":
+                events.append({"kind": "interrupt", "ts": ts,
+                               "turn_id": current_turn_id})
+            elif pt == "web_search_end":
+                events.append({"kind": "tool_use", "ts": ts, "tool": "web_search",
+                               "input": {}, "turn_id": current_turn_id,
+                               "call_id": p.get("call_id")})
+        elif t == "response_item":
+            pt = p.get("type")
+            if pt == "message" and p.get("role") == "assistant":
+                txt = " ".join(b.get("text", "") for b in p.get("content") or []
+                               if isinstance(b, dict) and b.get("type") == "output_text")
+                if txt.strip():
+                    events.append({"kind": "assistant_text", "ts": ts, "text": txt,
+                                   "turn_id": current_turn_id,
+                                   "native_id": p.get("id")})
+            elif pt == "function_call":
+                name = p.get("name") or "unknown"
+                try:
+                    args = json.loads(p.get("arguments") or "{}")
+                    if not isinstance(args, dict):
                         args = {}
-                    if name == "apply_patch":
-                        _codex_patch_stats(args.get("input") or args.get("patch") or "", events, ts)
-                    else:
-                        events.append({"kind": "tool_use", "ts": ts, "tool": name, "input": args})
-                    cmd = args.get("cmd") or args.get("command") or ""
-                    if isinstance(cmd, list):
-                        cmd = " ".join(str(x) for x in cmd)
-                    if cmd and p.get("call_id"):
-                        call_cmds[p["call_id"]] = cmd
-                elif pt == "custom_tool_call":
-                    name = p.get("name") or "unknown"
-                    if name == "apply_patch":
-                        _codex_patch_stats(p.get("input") or "", events, ts)
-                    else:
-                        events.append({"kind": "tool_use", "ts": ts, "tool": name, "input": {}})
-                elif pt == "function_call_output":
-                    out_text = p.get("output") or ""
-                    m = EXIT_CODE_RE.search(out_text if isinstance(out_text, str) else "")
-                    is_err = bool(m and m.group(1) != "0")
-                    # 豁免 rg/grep/diff/test 等退出码 1（无匹配/有差异是预期行为，非失败）。
-                    # Codex shell 带 pipefail：管道退出码可能来自首段（rg|head）或末段（ps|rg），两端都检查。
-                    if is_err and m.group(1) == "1":
-                        segs = [x.strip() for x in call_cmds.get(p.get("call_id"), "").split("|")]
-                        if BENIGN_EXIT1_RE.match(segs[0]) or BENIGN_EXIT1_RE.match(segs[-1]):
-                            is_err = False
-                    events.append({"kind": "tool_result", "ts": ts, "is_error": is_err,
-                                   "error_text": ("exit code " + m.group(1) + " " + out_text[:300]) if is_err else ""})
+                except (json.JSONDecodeError, TypeError):
+                    args = {}
+                if name == "apply_patch":
+                    _codex_patch_stats(args.get("input") or args.get("patch") or "", events, ts)
+                    events[-1]["turn_id"] = current_turn_id
+                    events[-1]["call_id"] = p.get("call_id")
+                    events[-1]["native_id"] = p.get("id")
+                else:
+                    events.append({"kind": "tool_use", "ts": ts, "tool": name,
+                                   "input": args, "turn_id": current_turn_id,
+                                   "call_id": p.get("call_id"),
+                                   "native_id": p.get("id")})
+                cmd = args.get("cmd") or args.get("command") or ""
+                if isinstance(cmd, list):
+                    cmd = " ".join(str(x) for x in cmd)
+                if cmd and p.get("call_id"):
+                    call_cmds[p["call_id"]] = cmd
+            elif pt == "custom_tool_call":
+                name = p.get("name") or "unknown"
+                if name == "apply_patch":
+                    _codex_patch_stats(p.get("input") or "", events, ts)
+                    events[-1]["turn_id"] = current_turn_id
+                    events[-1]["call_id"] = p.get("call_id")
+                    events[-1]["native_id"] = p.get("id")
+                else:
+                    events.append({"kind": "tool_use", "ts": ts, "tool": name,
+                                   "input": {}, "turn_id": current_turn_id,
+                                   "call_id": p.get("call_id"),
+                                   "native_id": p.get("id")})
+            elif pt in {"function_call_output", "custom_tool_call_output"}:
+                out_text = p.get("output") or ""
+                m = EXIT_CODE_RE.search(out_text if isinstance(out_text, str) else "")
+                is_err = bool(m and m.group(1) != "0")
+                # 豁免 rg/grep/diff/test 等退出码 1（无匹配/有差异是预期行为，非失败）。
+                # Codex shell 带 pipefail：管道退出码可能来自首段（rg|head）或末段（ps|rg），两端都检查。
+                if is_err and m.group(1) == "1":
+                    segs = [x.strip() for x in call_cmds.get(p.get("call_id"), "").split("|")]
+                    if BENIGN_EXIT1_RE.match(segs[0]) or BENIGN_EXIT1_RE.match(segs[-1]):
+                        is_err = False
+                events.append({"kind": "tool_result", "ts": ts, "is_error": is_err,
+                               "error_text": ("exit code " + m.group(1) + " " + out_text[:300]) if is_err else "",
+                               "turn_id": current_turn_id,
+                               "call_id": p.get("call_id"),
+                               "native_id": p.get("id")})
     tss = [ev["ts"] for ev in events if ev["ts"]]
     if not tss:
+        if start:
+            return ParsedSession(
+                "codex",
+                session_id,
+                project_path,
+                events,
+                start,
+                start,
+                source=source,
+                thread_source=thread_source,
+                source_audit=owned.audit,
+            )
         return None
     return ParsedSession("codex", session_id, project_path, events,
                          start or min(tss), max(tss), source=source,
-                         thread_source=thread_source)
+                         thread_source=thread_source, source_audit=owned.audit)
 
 
 # ============================================================================
 # SessionMeta 计算（与 /insights 源码 extractToolStats / logToSessionMeta 对齐）
 # ============================================================================
 
-def compute_meta(s: ParsedSession, src_mtime):
+def compute_meta(s: ParsedSession, source_info):
     tool_counts, languages, error_cats = {}, {}, {}
     category_counts = {}
     git_commits = git_pushes = tokens_in = tokens_out = 0
@@ -448,6 +515,7 @@ def compute_meta(s: ParsedSession, src_mtime):
     models, efforts = {}, {}
     thinking_turns = thinking_total = 0
     auto_review_turns = 0
+    seen_turn_ids = set()
     first_prompt = ""
     cat_map = CLAUDE_TOOL_CATEGORY if s.agent == "claude-code" else CODEX_TOOL_CATEGORY
     last_assistant_ts = None
@@ -520,6 +588,13 @@ def compute_meta(s: ParsedSession, src_mtime):
         elif k == "interrupt":
             interruptions += 1
         elif k == "turn":
+            # 实测同一 native turn_id 会重复出现相同的 turn_context；同一 native turn
+            # 只保留一份模型/强度配置。没有 turn_id 的旧记录不能安全去重，仍按记录计。
+            turn_id = ev.get("turn_id")
+            if turn_id:
+                if turn_id in seen_turn_ids:
+                    continue
+                seen_turn_ids.add(turn_id)
             if ev.get("model") == "codex-auto-review":
                 # 自动评审通道：内部流量，不计入用户的模型/强度分布
                 auto_review_turns += 1
@@ -594,11 +669,16 @@ def compute_meta(s: ParsedSession, src_mtime):
         "files_modified": len(files_modified),
         "message_hours": message_hours,
         "user_message_timestamps": user_ts,
-        "models": models,                    # 模型名 → 轮次（Claude 为 assistant 消息数）
-        "reasoning_effort": efforts,         # 仅 Codex：low/medium/high/xhigh → 轮次
+        "models": models,                    # Claude assistant 消息 / Codex 去重 native turn 配置记录
+        "reasoning_effort": efforts,         # 仅 Codex：按 turn_id 去重的 native turn 配置记录
         "thinking_turns": thinking_turns,    # 仅 Claude：含 thinking 块的轮次
         "thinking_total": thinking_total,
-        "src_mtime": src_mtime,
+        "src_mtime": source_info.get("mtime"),
+        "src_mtime_ns": source_info.get("mtime_ns"),
+        "src_size": source_info.get("size"),
+        "src_sha256": source_info.get("sha256") or s.source_audit.get("sha256"),
+        "source_snapshot_id": source_info.get("source_snapshot_id"),
+        "source_audit": s.source_audit,
     }
 
 
@@ -640,6 +720,10 @@ def main():
     ap.add_argument("--days", type=int, default=30, help="facet 提取窗口：最近 N 天（0=不限）；meta 始终全量维护")
     ap.add_argument("--max-load", type=int, default=200, help="单次最多解析的未缓存会话数")
     ap.add_argument("--max-facets", type=int, default=50, help="窗口内最多提取的 facet 数")
+    ap.add_argument(
+        "--codex-snapshot-manifest",
+        help="使用冻结的 Codex rollout 清单（path/byte_length/sha256），而非实时扫描",
+    )
     args = ap.parse_args()
 
     home = args.home
@@ -648,11 +732,14 @@ def main():
                 "transcripts/claude-code", "transcripts/codex", "work"):
         os.makedirs(os.path.join(home, sub), exist_ok=True)
 
-    scanned = claude_scan(args.claude_dir) + codex_scan(args.codex_dir)
+    scanned = claude_scan(args.claude_dir) + codex_scan(
+        args.codex_dir, args.codex_snapshot_manifest
+    )
     scanned.sort(key=lambda x: -x["mtime"])
 
     metas, parsed_cache = [], {}
     loaded = skipped_cache = failed = 0
+    failure_details = []
     for info in scanned:
         meta_path = os.path.join(home, "cache/meta", info["agent"], info["session_id"] + ".json")
         cached = None
@@ -661,7 +748,14 @@ def main():
                 with open(meta_path, encoding="utf-8") as fh:
                     cached = json.load(fh)
                 if (cached.get("schema_version") != SCHEMA_VERSION
-                        or cached.get("src_mtime") != info["mtime"]):
+                        or cached.get("src_mtime") != info["mtime"]
+                        or cached.get("src_mtime_ns") != info.get("mtime_ns")
+                        or cached.get("src_size") != info.get("size")
+                        or cached.get("source_snapshot_id") != info.get("source_snapshot_id")
+                        or (
+                            info.get("sha256")
+                            and cached.get("src_sha256") != info.get("sha256")
+                        )):
                     cached = None  # 源文件有更新或 schema 升级 → 重算
             except (json.JSONDecodeError, OSError):
                 cached = None
@@ -673,14 +767,36 @@ def main():
             continue
         loaded += 1
         try:
-            parse = claude_parse if info["agent"] == "claude-code" else codex_parse
-            s = parse(info["path"], info["session_id"])
-        except (OSError, UnicodeDecodeError):
+            if info["agent"] == "claude-code":
+                s = claude_parse(info["path"], info["session_id"])
+            else:
+                s = codex_parse(
+                    info["path"],
+                    info["session_id"],
+                    byte_limit=info.get("byte_length"),
+                    expected_sha256=info.get("sha256"),
+                )
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
             s = None
+            failure_details.append({
+                "agent": info["agent"],
+                "session_id": info["session_id"],
+                "error": str(exc),
+            })
         if s is None:
+            if not any(
+                detail["agent"] == info["agent"]
+                and detail["session_id"] == info["session_id"]
+                for detail in failure_details
+            ):
+                failure_details.append({
+                    "agent": info["agent"],
+                    "session_id": info["session_id"],
+                    "error": "parser returned no timestamped owned session",
+                })
             failed += 1
             continue
-        meta = compute_meta(s, info["mtime"])
+        meta = compute_meta(s, info)
         with open(meta_path, "w", encoding="utf-8") as fh:
             json.dump(meta, fh, ensure_ascii=False, indent=1)
         os.chmod(meta_path, 0o600)
@@ -720,9 +836,16 @@ def main():
             if not src:
                 continue
             try:
-                parse = claude_parse if m["agent"] == "claude-code" else codex_parse
-                s = parse(src["path"], m["session_id"])
-            except (OSError, UnicodeDecodeError):
+                if m["agent"] == "claude-code":
+                    s = claude_parse(src["path"], m["session_id"])
+                else:
+                    s = codex_parse(
+                        src["path"],
+                        m["session_id"],
+                        byte_limit=src.get("byte_length"),
+                        expected_sha256=src.get("sha256"),
+                    )
+            except (OSError, UnicodeDecodeError, ValueError):
                 s = None
             if s is None:
                 continue
@@ -741,6 +864,17 @@ def main():
     by_agent = {}
     for m in metas:
         by_agent[m["agent"]] = by_agent.get(m["agent"], 0) + 1
+    codex_audits = [
+        m.get("source_audit") or {}
+        for m in metas
+        if m.get("agent") == "codex"
+    ]
+    results_with_call_id = sum(
+        audit.get("results_with_call_id") or 0 for audit in codex_audits
+    )
+    linked_results = sum(
+        audit.get("results_linked_to_owned_call") or 0 for audit in codex_audits
+    )
     summary = {
         "home": home,
         "scanned_files": len(scanned),
@@ -749,6 +883,36 @@ def main():
         "from_cache": skipped_cache,
         "parsed_now": loaded - failed,
         "parse_failed_or_meta": failed,
+        "failure_details": failure_details,
+        "codex_snapshot_id": next(
+            (
+                info.get("source_snapshot_id")
+                for info in scanned
+                if info.get("agent") == "codex" and info.get("source_snapshot_id")
+            ),
+            None,
+        ),
+        "codex_ownership": {
+            "files_with_imported_history": sum(
+                bool(audit.get("imported_session_ids")) for audit in codex_audits
+            ),
+            "owner_leakage_lines": sum(
+                audit.get("owner_leakage_lines") or 0 for audit in codex_audits
+            ),
+            "orphan_valid_lines": sum(
+                audit.get("orphan_valid_lines") or 0 for audit in codex_audits
+            ),
+            "invalid_json_lines": sum(
+                audit.get("invalid_json_lines") or 0 for audit in codex_audits
+            ),
+            "results_with_call_id": results_with_call_id,
+            "results_linked_to_owned_call": linked_results,
+            "result_call_link_rate": (
+                round(linked_results / results_with_call_id, 6)
+                if results_with_call_id
+                else None
+            ),
+        },
         "facet_window_days": args.days,
         "internal_sessions_excluded": internal_count,
         "substantive_total": len(substantive),

@@ -52,9 +52,13 @@ npx skills add https://github.com/Seashell113/skills.git -g --skill insights-agg
 | --- | --- |
 | `SKILL.md` | skill 主体指令（给 agent 读） |
 | `scripts/collect.py` | 扫描 + 解析双工具会话，维护 SessionMeta 缓存 |
+| `scripts/codex_segments.py` | 按冻结字节边界区分 Codex owned live、导入历史与 orphan |
 | `scripts/aggregate.py` | 聚合统计与跨工具关联 |
 | `scripts/render.py` | 渲染自包含 HTML 报告 |
+| `tests/test_codex_segments.py` | Codex fork、subagent、无效行与快照回归夹具 |
 | `prompts/facet-extraction.md` | facet 提取子 agent 提示词 |
 | `prompts/insight-sections.md` | 洞察 section 提示词 |
 | `reference/claude-insights-spec.md` | 官方 `/insights` 逻辑规范（背景知识） |
 | `reference/codex-session-schema.md` | Codex 会话格式与字段映射（含新工具适配方法） |
+
+Codex 的一个物理 rollout 可能包含继承的父会话历史。采集器会以文件名和首条 `session_meta` 校验物理会话，只将 owned live 事件计入指标；需要固定重跑口径时，可传入带 byte cutoff 与 SHA-256 的 `--codex-snapshot-manifest`。
