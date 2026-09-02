@@ -19,7 +19,7 @@ Skill 是给 AI Agent 读的能力说明书：每个技能以一份 `SKILL.md` �
 | 场景 | Skill | 适合什么时候用 | 典型产出 |
 | --- | --- | --- | --- |
 | 会话治理 | [codex-thread-organizer](skills/codex-thread-organizer/) | Codex 会话需要命名、收口、handoff 或回溯 | 会话标题、收口摘要、交接包 |
-| 模型协作 | [codex-chatgpt-dispatch](skills/codex-chatgpt-dispatch/) | 需要把 Codex 本地现场交给 ChatGPT 网页指定档位完成复审或生图 | handoff、文本或图片结果、本地核验结论 |
+| 模型协作 | [codex-chatgpt-dispatch](skills/codex-chatgpt-dispatch/) | 需要把 Codex 本地现场交给 ChatGPT 网页指定档位完成复审或生图 | 直接提示词、可选 handoff、文本或图片结果、本地核验结论 |
 | 阅读交付 | [human-html-artifact](skills/human-html-artifact/) | 长文档、方案、review 或多文档摘录难以线性阅读 | 自包含 HTML 阅读页 |
 | 本地自动化 | [codex-quota-inspector](skills/codex-quota-inspector/) | 查询 Codex 普通额度和 ChatGPT 免费重置机会 | 脱敏额度快照 |
 | 本地自动化 | [invoice-reimbursement-bundler](skills/invoice-reimbursement-bundler/) | 本地发票 PDF 需要统计、查重、凑金额和打包 | 报销组合、结果目录 |
@@ -50,13 +50,15 @@ Skill 是给 AI Agent 读的能力说明书：每个技能以一份 `SKILL.md` �
 
 ```text
 $codex-chatgpt-dispatch 把当前方案和关键证据交给 Pro 做一次独立审查，拿到结果后回来核验
+$codex-chatgpt-dispatch 组织发送就行，不用等结果
 $codex-chatgpt-dispatch 用新增 Spike 结果在原对话继续讨论一轮
+$codex-chatgpt-dispatch 完整留存这次对话
 $codex-chatgpt-dispatch 用页面当前非 Pro 档位生成一张配图，保存后在本地检查
 ```
 
-**产出效果**：按任务需要准备直接提示词、`handoff.txt` 或续评证据桥；附件任务开始时静默核对官方 IAB 能力边界和本机版本，当前仍不支持时给出按目录分组、可直接复制选择的上传卡并保留侧栏标签页，用户上传一次后由 Browser 核对；随后在普通 ChatGPT 网页只提交一次并同页等待，最终取得文本回复或本地图片文件并完成核验。
+**产出效果**：一条输入足够时直接提交完整文本，只有信息结构、较多附件索引、复用需要或用户明确要求时才生成 handoff；附件任务独立冻结最小发送集和 SHA-256，必要时生成单一发送目录和可点击文件链接；Browser 核对后只提交一次，可立即返回或同页等待、回收并核验结果。用户明确要求时，还会保存一份完整可见对话的可追溯 Markdown 记录。
 
-**依赖与边界**：真实提交只支持 ChatGPT 桌面中的 Codex + 内置 Browser；当前 IAB 不自动上传附件，人工上传完成的调度单独标记为“人工辅助调度成功”。静默预检仅在实际附件任务开始时运行，版本变化不等于能力恢复；发现官方恢复信号后仍需用户授权一次无敏感探测。显式触发不等于发送授权。目标档位不可用、Browser 主链不可用或发送状态不唯一时停止，不静默降级、重发或切换链路。侧栏优先可见，但显隐不作为成功判据。
+**依赖与边界**：真实提交只支持 ChatGPT 桌面中的 Codex + 内置 Browser；当前 IAB 不自动上传附件，人工上传完成的调度单独标记为“人工辅助调度成功”。显式触发不等于发送授权。产品档位、模型、思考强度或发送状态不唯一时停止，不静默降级、重发或切换链路。
 
 详情：[README](skills/codex-chatgpt-dispatch/README.md) / [SKILL.md](skills/codex-chatgpt-dispatch/SKILL.md)
 

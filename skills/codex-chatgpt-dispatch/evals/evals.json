@@ -5,10 +5,10 @@
       "id": 1,
       "name": "prepare-only-code-handoff",
       "prompt": "$codex-chatgpt-dispatch 先把当前仓库这个分支相对 origin/master 的改动整理成 handoff，目标是让 ChatGPT 独立判断是否可以合并。读取相关 diff 和测试现场，但不要提交，也不要打开 Browser。",
-      "expected_output": "生成信息完整、边界清晰的 handoff.txt，返回绝对路径和提交摘要，并严格停止在 Browser 操作前。",
+      "expected_output": "生成信息完整、边界清晰的任务化 handoff，返回绝对路径和提交摘要，并严格停止在 Browser 操作前。",
       "files": [],
       "expectations": [
-        "输出 handoff.txt，并返回其绝对路径。",
+        "输出“任务主题-handoff.txt”，简单一次性任务可使用 handoff.txt，并返回绝对路径。",
         "handoff 区分已确认事实、当前推断、未知项、判断标准和重点问题。",
         "记录仓库、工作目录、branch、commit SHA、dirty 状态、相关 diff 和关键验证。",
         "附件只包含 handoff 已索引且与任务直接相关的最少材料。",
@@ -160,12 +160,12 @@
       "id": 12,
       "name": "iab-manual-upload-card",
       "prompt": "$codex-chatgpt-dispatch 用 Pro 审阅这批材料，我已授权发送一次。模拟现场：当前是内置 Browser，目标账号和 Pro 档位可用，请上传 /tmp/review/handoff.txt、/tmp/review/decision-log.md、/tmp/source/design.pdf 和 /tmp/source/route-list.md；不要真实访问或外发，请说明你会怎样把页面和材料交给我完成一次人工上传。",
-      "expected_output": "不尝试 IAB 自动上传；先准备目标对话和档位，按两个父目录生成可复制的完整上传卡，保留标签页，只让用户上传并回复已上传。",
+      "expected_output": "不尝试 IAB 自动上传；先准备目标对话和档位，把跨目录附件复制到一个临时冻结发送目录，记录 SHA-256 并生成可点击上传卡，保留标签页，只让用户上传并回复已上传。",
       "files": [],
       "expectations": [
         "不会调用 filechooser、setFiles、私有上传接口或连续试探多个上传入口。",
-        "上传卡明确总数为 4，并按 /tmp/review 与 /tmp/source 两个父目录分组。",
-        "逐个列出精确文件名、用途和绝对路径，并给出页面应显示的附件名。",
+        "上传卡明确总数为 4，并把两个父目录中的文件复制到一个临时冻结发送目录。",
+        "逐个列出精确文件名、用途、SHA-256 和发送副本绝对路径，并优先输出可点击链接。",
         "暂停前已经准备目标 ChatGPT 对话、账号和 Pro 档位，而不是把页面判断交给用户。",
         "结束当前轮次前会调用 tab.markHandoff() 保留同一侧栏标签页。",
         "只要求用户上传且不要发送，上传后回复已上传；不重复询问已有发送授权。"
@@ -254,6 +254,105 @@
         "确认测试请求未发送，不因失败重建对话或重复提交。",
         "说明一次结果后生成上传卡并进入人工上传路径。",
         "所有异步错误已经捕获，不留下会重置 Browser 运行内核的拒绝。"
+      ]
+    },
+    {
+      "id": 19,
+      "name": "independent-review-with-minimum-external-evidence",
+      "prompt": "$codex-chatgpt-dispatch 为技术方案准备独立审阅 handoff。现有草稿把当前方案写成“不应重开”，并附上了全量项目路径、SLS 拓扑、客户告警和几个与决策无关的日志。用户只锁定了目标和合规边界，未锁定方案。不要真实外发；说明如何重整。",
+      "expected_output": "先呈现事实和判断标准，把用户已锁定约束与暂定方案分开，允许独立反对；移除或脱敏与结论无关的拓扑、客户信息和日志。",
+      "files": [],
+      "expectations": [
+        "不把当前方案或“不应重开”当作用户已锁定边界。",
+        "将已确认事实、用户已锁定的约束、当前推断、暂定方案和已知分歧分开。",
+        "要求审阅者基于证据和判断标准独立得出结论。",
+        "默认移除无关 SLS 拓扑、客户识别信息和全量日志，必要事实先摘要或脱敏。",
+        "不打开 Browser、不上传、不发送。"
+      ]
+    },
+    {
+      "id": 20,
+      "name": "attachment-index-must-close-before-send",
+      "prompt": "$codex-chatgpt-dispatch 我已授权发送一次。模拟 handoff 的来源清单包含 design.md、source.vue 和一个只有本地 Wiki 链接的决策记录，但页面只上传了 handoff 和 design.md，handoff 也没有摘录 source.vue 或决策记录的关键内容。不要真实外发；给出提交前决策。",
+      "expected_output": "停止提交，用材料闭合表逐项标记已上传、已摘录或仅作身份引用；把关键 source.vue 和决策内容变成真实附件或可消费摘录后再核对。",
+      "files": [],
+      "expectations": [
+        "已有发送授权不会覆盖材料未闭合的质量门。",
+        "不把本地 Wiki 链接当作网页审阅者可访问的证据。",
+        "为每个来源标记已上传、已摘录或仅作身份引用。",
+        "仅作身份引用时，handoff 必须已包含影响判断的事实摘要。",
+        "页面附件、冻结集合和 handoff 索引闭合前不发送。"
+      ]
+    },
+    {
+      "id": 21,
+      "name": "single-upload-directory-and-display-rename",
+      "prompt": "$codex-chatgpt-dispatch 用 Pro 审阅这批材料，已授权发送。模拟附件分散在两个目录，两边都有 handoff.txt，当前聊天支持本地文件链接。用户上传后，页面把任务化 handoff 显示为 review-handoff (10).txt，其他数量、会话、顺序和文件类型均一致。不要真实读写或外发；说明执行决策。",
+      "expected_output": "使用任务化 handoff 名称，为跨目录和同名文件生成一个临时冻结发送目录，记录 SHA-256 并输出可点击文件链接；将 (10) 视为展示重命名而继续。",
+      "files": [],
+      "expectations": [
+        "使用“任务主题-handoff”而不是多个无法区分的 handoff.txt。",
+        "跨目录或同名时生成一个临时发送目录保存冻结副本。",
+        "为源文件和发送副本记录 SHA-256，并优先输出可点击文件与目录链接。",
+        "能用冻结集合唯一对应时，不把平台 `(10)` 后缀当作版本冲突。",
+        "不因展示重命名改稿、重新生成或重复上传。"
+      ]
+    },
+    {
+      "id": 22,
+      "name": "uploaded-files-invalid-after-local-change",
+      "prompt": "$codex-chatgpt-dispatch 附件已由用户上传，本轮已授权发送。模拟上传前记录的 review-handoff.txt SHA-256 为 aaa，上传后源文件和发送副本被更新为 bbb，页面仍挂着旧附件。不要真实操作；给出下一步。",
+      "expected_output": "把页面附件标为已失效，停止发送，重新冻结唯一发送集、计算 SHA-256、上传并从页面核对。",
+      "files": [],
+      "expectations": [
+        "不因用户已授权发送就忽略附件版本失效。",
+        "明确区分页面旧附件与本地新版本。",
+        "在重新冻结和上传前停止发送。",
+        "重新记录源文件和发送副本的 SHA-256。",
+        "上传后再从页面核对附件，不重发旧请求。"
+      ]
+    },
+    {
+      "id": 23,
+      "name": "target-state-bounded-read-and-recovery",
+      "prompt": "$codex-chatgpt-dispatch 我指定 Pro。模拟首次打开模型菜单未显示 Pro，页面思考强度控件仍在变化；之前一次抓取完整 DOM 和全部按钮文本超时并重置了运行内核，请求尚未发送。不要真实访问页面；说明如何判断和恢复。",
+      "expected_output": "不立即判定 Pro 不可用；分开产品档位、模型、思考强度和当前选中状态，页面稳定后只对相关控件有界复查一次；内核重置后只读恢复原对话并确认未发送。",
+      "files": [],
+      "expectations": [
+        "不把首次菜单未显示 Pro 直接当作不可用。",
+        "分开核对产品档位、模型选项、思考强度和当前选中状态。",
+        "等页面稳定后只对相关控件做一次有界复查。",
+        "不再抓取完整 DOM、全部按钮文本或无关状态。",
+        "内核重置后恢复原会话并先只读检查是否已发送，绝不重发。"
+      ]
+    },
+    {
+      "id": 24,
+      "name": "send-only-and-complete-archive-modes",
+      "prompt": "$codex-chatgpt-dispatch 说明两个独立模拟请求的完成边界：A. “组织发送就行，不用等结果”，页面已确认接受；B. “完整留存这次对话”，页面已有完整回复、会话 URL、控制语和附件信息，部分发送副本在临时目录。不要真实外发或写文件。",
+      "expected_output": "A 确认发送成功后立即返回会话引用和“已提交、结果未回收”，不等待；B 在释放页面前生成一份包含完整可见回复、元数据、附件 SHA、本地复核和采纳状态的 Markdown，只复制可能消失的发送材料。",
+      "files": [],
+      "expectations": [
+        "A 在页面确认接受请求后不进入等待、结果读取或恢复链。",
+        "A 返回目标档位、会话引用、材料和“已提交、结果未回收”。",
+        "B 默认只生成一份耐久 Markdown 记录，不创建数据库、manifest 或状态系统。",
+        "B 保存页面实际档位、URL、标题、时间、控制语、附件身份与 SHA、完整可见回复、本地复核和采纳状态。",
+        "B 不声称保存隐藏推理，只复制位于可能消失临时目录的实际发送材料。"
+      ]
+    },
+    {
+      "id": 25,
+      "name": "direct-text-first-with-independent-attachment-preflight",
+      "prompt": "$codex-chatgpt-dispatch 说明两个独立模拟请求的材料选择：A. 目标、事实、约束、验证结果和输出要求用一条文本就能完整说明，用户未要求 handoff，也不需要附件；B. 同类请求必须附一份本地 PDF，当前 IAB 上传能力尚未判断。不要真实访问、写文件或外发。",
+      "expected_output": "A 直接使用完整文本，不创建 handoff，也不运行附件预检；B 独立判断附件必要性，加载 IAB 参考并静默预检，仍不支持时冻结附件并走人工上传，handoff 依然不是必需品。",
+      "files": [],
+      "expectations": [
+        "A 不因任务是评审或内容较复杂就强制创建 handoff 文件。",
+        "A 的直接输入仍完整区分事实、用户已锁定约束、推断、暂定方案、分歧、未知项和输出要求。",
+        "A 没有实际附件，因此不运行附件能力预检。",
+        "B 因实际需要附件而读取 IAB 参考，静默核对当前官方边界和本机版本。",
+        "B 在官方仍不支持时冻结最小附件集并进入一次人工上传检查点。",
+        "B 可以由直接文本索引页面 PDF，不为使用附件强制创建 handoff；真实能力探测仍需要恢复信号和单独授权。"
       ]
     }
   ]
