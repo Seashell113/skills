@@ -432,6 +432,43 @@
         "不申请自动上传探测，官方仍不支持就人工上传。",
         "保留原 URL，跨轮先定位原页再核对，不宣称句柄保证持久。"
       ]
+    },
+    {
+      "id": 32,
+      "name": "iab-scoped-recovery",
+      "prompt": "整改调度链路。全局 getState 超时，之前已记录本任务 IAB 的 browserId 和 tabId，从未发送。请说明下一步诊断，不操作真实工具。",
+      "expected_output": "使用已知身份定向恢复；区分全局盘点与具体页面，继续修复诊断。",
+      "files": [],
+      "expectations": [
+        "不强制再次全局 getState，不盲目重复创建。",
+        "不把一轮业务恢复上限当作整改验收。",
+        "记录未发送，真实同页提交与回收才是链路验收。"
+      ]
+    },
+    {
+      "id": 33,
+      "name": "iab-dom-deadline",
+      "prompt": "只模拟：当前 CUA 文档提供 agent.browsers 同一 IAB DOM API。getTab 自动 AX 读取在 60 秒仍卡住；截图成功耗时 18 秒，单独 DOM 读取在默认 30 秒超时。测试请求已授权，当前尚未发送。怎样继续？",
+      "expected_output": "用当前公开同页 DOM 接口，基于慢调用证据有界调整时限，拆开步骤并核验。",
+      "files": [],
+      "expectations": [
+        "使用同一 IAB 的 agent.browsers，不把 API 移植到 CUA 包装对象。",
+        "允许对独立 DOM 调用一次合理的时限调整，不把禁延长超时当硬规则。",
+        "不静默切外部 Chrome 或私有接口，不重复发送。",
+        "标准 AX 仍失败与可用 DOM 路径分别报告。"
+      ]
+    },
+    {
+      "id": 34,
+      "name": "route-log-causality",
+      "prompt": "IAB 日志同批出现一个会话匹配成功、多个 No ChatGPT browser route is available；同页截图和真实发送回收已经成功。你如何解释并收口诊断？只给判断，不操作工具。",
+      "expected_output": "路由报错不足以证明当前链路坏；报告真实通过范围和仍未定位延迟，不改宿主。",
+      "files": [],
+      "expectations": [
+        "不把日志错误次数当根因证明。",
+        "不因此要求重启或改写路由、安全限制。",
+        "区分一次短文本成功、AX 失败和未测试上传。"
+      ]
     }
   ]
 }
