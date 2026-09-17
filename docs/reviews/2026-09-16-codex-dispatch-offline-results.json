@@ -1,0 +1,89 @@
+{
+  "scope": "离线模拟，未实际操作浏览器或外发。文件型模拟缺少完整材料身份，另作本地合成验收。",
+  "runs": [
+    {
+      "variant": "new",
+      "id": 26,
+      "name": "cua-only-direct-text",
+      "decision": "离线模拟：CUA 声明支持 IAB，旧 Skill 缺失不阻断；直接文本、无附件。",
+      "tool_trace": [
+        "模拟首调用仅执行 let tab = await cua.createBrowserTab(\"iab\", \"https://chatgpt.com\", { visible: true });",
+        "先读返回文档和状态，再核对账号、Pro 及选中状态；输入三段正文，仅发送一次，确认接受后立即返回。"
+      ],
+      "user_delivery": "模拟未执行真实提交。实际运行确认接受后交付目标档位、原会话 URL、直接文本及‘已提交、结果未回收’，不等待结果。",
+      "uncertainties": [
+        "实际页面状态、正文及 URL 未提供，不能声称成功。"
+      ]
+    },
+    {
+      "variant": "new",
+      "id": 27,
+      "name": "cua-create-timeout-recovery",
+      "decision": "离线模拟：连接未证实；创建超时不能证明未建页。一次恢复仍超时，停止控制器；题设从未发送。",
+      "tool_trace": [
+        "createBrowserTab 超时/reset 后，单独 getState 仍超时；不再创建、reset 或切换链路。"
+      ],
+      "user_delivery": "未发送，已转人工。共上传 review-handoff.txt 与 design.md 两个冻结文件。控制语：‘请完整阅读 review-handoff.txt 和其中索引的 design.md，基于事实和判断标准独立审阅，区分事实、推断、建议和待验证项。’由你自行提交，工具恢复也不自动发送。",
+      "uncertainties": [
+        "绝对路径、哈希、指定档位和原 URL 未提供，不能编造链接；页面未核验。"
+      ]
+    },
+    {
+      "variant": "new",
+      "id": 31,
+      "name": "cua-upload-without-legacy-methods",
+      "decision": "离线模拟：官方限制仍在，直接人工上传；不探测、不调用旧方法。",
+      "tool_trace": [
+        "规划三个跨目录附件汇总发送目录并冻结名称、用途、源/副本路径和哈希；本题不写副本。",
+        "记录原 URL 与 tab 身份；上传后同页核对数量、身份及哈希，通过后沿用原发送授权。"
+      ],
+      "user_delivery": "本轮 3 个附件，请按完整上传卡只上传、不发送，完成回复‘已上传’。卡片应含精确名称、用途、SHA-256、发送目录及绝对链接。CUA 无 markHandoff，不保证跨轮句柄存活。当前未发送，未宣称成功。",
+      "uncertainties": [
+        "题设未提供附件名称、路径、哈希与 URL，无法编造完整上传卡。"
+      ]
+    },
+    {
+      "variant": "old",
+      "id": 26,
+      "name": "cua-only-direct-text",
+      "decision": "离线模拟：未提交。旧版强制加载 browser:control-in-app-browser；仅有 CUA 不满足条件。",
+      "tool_trace": [
+        "检查到 CUA 支持 iab，但旧 Browser Skill 缺失。",
+        "首个页面调用：无；按旧版 fail closed，不调用 CUA。"
+      ],
+      "user_delivery": "已授权 Pro、一次发送且不等待，但旧版没有 CUA 替代路径，当前停在提交前。不会打开页面或发送，也不选择其他渠道。发送次数为 0；这是离线模拟，未核验真实档位。",
+      "uncertainties": [
+        "三段文字实际内容及页面状态未提供。"
+      ]
+    },
+    {
+      "variant": "old",
+      "id": 27,
+      "name": "cua-create-timeout-recovery",
+      "decision": "离线模拟：遵循用户自行提交的新指令，停止自动重试并交付材料用法。",
+      "tool_trace": [
+        "既有 createBrowserTab 与 getState 超时为题面事实；未输入或发送。",
+        "后续调用：无，转用户自行提交。"
+      ],
+      "user_delivery": "请一起上传 review-handoff.txt 和 design.md，前者为主上下文，后者为设计依据。控制语：“请完整阅读两份附件，依据其中目标、事实与约束独立审阅，可以反对当前方案；请区分事实、推断、建议和待验证项。”自动流程按场景从未发送；现在等你手动推进。",
+      "uncertainties": [
+        "未提供绝对路径，不能生成真实文件链接；未实际核验文件。"
+      ]
+    },
+    {
+      "variant": "old",
+      "id": 31,
+      "name": "cua-upload-without-legacy-methods",
+      "decision": "离线模拟：采用人工上传，但旧版所需 Browser Skill 与 markHandoff 无可用证据，停在提交前。",
+      "tool_trace": [
+        "读取题面能力边界，不尝试 filechooser、setFiles 或不存在的 markHandoff。",
+        "规划三个跨目录附件集中冻结；遵循禁止写文件要求，未复制。",
+        "首个页面调用：无。"
+      ],
+      "user_delivery": "旧版要求冻结发送目录、完整上传卡及 markHandoff 跨轮交接。当前仅有 CUA，无法按旧规则完成该交接，暂不发送。没有实际集中附件或生成可用上传卡，也未探测上传能力。",
+      "uncertainties": [
+        "缺少文件名、路径、用途与哈希；不虚构目录或接口。"
+      ]
+    }
+  ]
+}
