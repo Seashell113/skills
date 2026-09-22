@@ -175,3 +175,16 @@ Browser 的 `markHandoff` 等方法。当前宿主公开提供 CUA 的 IAB 入�
 边界：只验证本环境的单个小型 TXT，不证明 PDF、图片、多附件、大文件或后续版本可用；不声称官方概览已更新，也不绕过未来的宿主／组织上传拒绝。标准 AX 和底层慢调用仍未修复。本轮开始已在新日期重新绑定并按公开 DOM 路径恢复原对话，但不等于全新任务能自动发现 Skill。
 
 据此修正附件参考的两条过强规则：概览“不支持”不再无条件压过当前运行时明确的上传流程与用户复验授权；用户已授权完整链路时不再强制只挂载移除、禁止发送。没有当前契约、没有授权或被实际权限禁止时仍转人工，不扩大业务资料外发。当前 markHandoff 是否可用按对象文档判断，消除“只有旧控制器可用”的过时限定。
+
+
+## 2026-09-22 选模控件定位恢复
+
+跨任务实际使用已读取新版 Skill 并恢复同 IAB，但在“极高 → Pro”的 slider 角色定位连续超时。此前验证从已选好 Pro 的页面开始，未覆盖这一步；不能据文本／附件发送成功宣称完整选模能力。
+
+独立空白 IAB 页复现：菜单局部 innerText 成功；`getByRole("slider").evaluate(...)` 返回 selector deadline exceeded。公开只读 DOM 查询取得唯一可见滑块（28 × 28），同时有 `role="slider"`、`aria-hidden="true"`、`data-orientation="horizontal"`。角色选择器默认排除 ARIA 隐藏元素，见 [Playwright 文档](https://playwright.dev/docs/api/class-page#page-get-by-role)。这是本次定位失败的原因，不是所有 CUA 超时的根因。
+
+根据实际 DOM 使用 `locator('span[role="slider"][data-orientation="horizontal"]').press(...)`，ArrowLeft 将 Pro 切至极高，ArrowRight 切回 Pro。每次独立读取菜单，分别回显“极高，第 4 项，共 5 项”和“Pro，第 5 项，共 5 项”。按键耗时 30.18／34.87 秒，菜单读取约 30 秒，工具时限 60 秒。没有上传、输入或发送业务请求，没有修改页面 DOM 或使用私有接口；诊断页已关闭。选择器只记录当日证据，不要求未来照搬。
+
+Skill 增加语义定位失败后的局部 DOM 核查、唯一且可操作目标的公开 locator 恢复、切换后回显验收；保留真实隐藏／禁用、遮罩、权限与发送未知边界。新增场景 36／37 分别覆盖可恢复定位与不可越过的阻塞。真实行为证据来自上述本会话实测；场景定义及主会话走查不冒充独立代理评测。底层普遍延迟、AX 超时和其他控件未因此验收。
+
+交付校验：quick_validate 通过；37 个场景的 ID／名称唯一，JSON 与本地 Markdown 链接检查通过；git diff --check 通过。经 `npx skills add . -g -a codex --skill codex-chatgpt-dispatch -y` 更新本机，安装目录与源 Skill 全目录 diff 一致，安装副本再次 quick_validate 通过。
