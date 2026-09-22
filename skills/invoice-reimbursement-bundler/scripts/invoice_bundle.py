@@ -21,6 +21,7 @@ import os
 import re
 import shutil
 import sys
+import unicodedata
 from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -53,6 +54,16 @@ _INVOICE_NO_PATTERNS = [
     re.compile(r"发票号码\s*(\d{10,20})"),
 ]
 
+# 旧版式电子发票（如国家税务总局浙江省税务局版）号码印在发票监制章附近，
+# 与页面标签隔着大量栏目文字，无法用上面文本正则可靠匹配；
+# 但导出系统的文件名前缀携带 20 位发票号，作为兜底。
+_INVOICE_NO_FROM_FILENAME_PATTERNS = [
+    # dzfp_26332000003869711146_杭州甘之草..._20260713...
+    re.compile(r"dzfp_(\d{10,20})"),
+    # _26332000006096739246_杭州甘之草... 或 26332000006096739246_...
+    re.compile(r"(?:^|_ ?)(\d{20})(?:[_.]|$)"),
+]
+
 _AMOUNT_PATTERNS = [
     # 价税合计（小写）常见写法
     re.compile(r"价税合计\s*(?:[^\n\r]{0,40}?)\s*[¥￥]\s*([\d,]+\.?\d{0,2})"),
@@ -66,7 +77,28 @@ _PURCHASER_TITLE_PATTERNS = [
     re.compile(r"购\s*名称\s*[：:]\s*(.+?)\s+销\s*名称\s*[：:]"),
     re.compile(r"购买方(?:信息)?\s*名称\s*[：:]\s*(.+?)(?:\s+销售方|\n)"),
     re.compile(r"购买方名称\s*[：:]\s*(.+?)(?:\n|$)"),
+    # 旧版式一：同一行“购 名称：X 售 名称：Y”被拆成多个标签与独立名称行，
+    # 购买方与销售方主体名先后连续出现，取第一个（购买方）。
+    re.compile(r"([⺀-鿿]{3,}(?:有限公司|有限责任公司|餐饮店|酒店|商行|服务中心|厂|公司|食品店))\s+[⺀-鿿]{3,}(?:有限公司|有限责任公司|餐饮店|酒店|商行|服务中心|厂|公司|食品店)"),
+    # 旧版式二：最老版式在同一行内“名称：X 名称：Y”，取第一个（购买方）。
+    re.compile(r"名称\s*[：:]\s*([⺀-鿿]{2,}?)(?:\s+名称\s*[：:]\s*[⺀-鿿]{2,}?)"),
 ]
+
+
+def _normalize_num(raw: str) -> str:
+    return re.sub(r"[^\d]", "", raw)
+
+
+def _invoice_no_from_filename(path: Path) -> str | None:
+    """从文件名提取 20 位发票号；失败返回 None。"""
+    name = path.stem
+    for pat in _INVOICE_NO_FROM_FILENAME_PATTERNS:
+        m = pat.search(name)
+        if m:
+            no = _normalize_num(m.group(1))
+            if no:
+                return no
+    return None
 
 
 def _extract_text_from_pdf(path: Path) -> str:
@@ -91,9 +123,35 @@ def _normalize_amount(raw: str) -> Decimal | None:
         return None
 
 
+# 部首补充区（U+2E80–U+2EF3）中常见于单位名称、且 NFKC 无法映射到标准汉字的字符。
+# 键为部首补充区字符，值为对应标准汉字。
+_CJK_RADICAL_SUPPL_MAP = {
+    "⻔": "门",  # ⻔ 简体“门”
+    "⻝": "食",  # ⻝ 食
+    "⻄": "西",  # ⻄ 西
+    "⻥": "鱼",  # ⻥ 简体“鱼”
+    "⻦": "鸟",  # ⻦ 简体“鸟”
+    "⻣": "骨",  # ⻣ 骨
+    "⻤": "鬼",  # ⻤ 鬼
+    "⻫": "齐",  # ⻫ 简体“齐”
+    "⻭": "齿",  # ⻭ 简体“齿”
+    "⻰": "龙",  # ⻰ 简体“龙”
+    "⻱": "龟",  # ⻱ 龟
+    "⻲": "龟",  # ⻲ 日本“龟”
+}
+
+
 def _normalize_title(raw: str) -> str | None:
-    """统一抬头空白和尾部标点，空值返回 None。"""
-    title = re.sub(r"\s+", "", raw).strip("：:；;,，")
+    """统一抬头空白和尾部标点，空值返回 None。
+
+    旧版式 PDF 常把部分汉字以部首/部首补充区字符呈现（如 ⽢、⼭、⻔、⻝），
+    与标准汉字字形异码。这里先经 NFKC 归一（康熙部首区可映射），再手动替换
+    部首补充区中常见于单位名称、NFKC 无法映射的字符，保证与用户给定的标准抬头一致。
+    """
+    title = unicodedata.normalize("NFKC", raw)
+    for src, dst in _CJK_RADICAL_SUPPL_MAP.items():
+        title = title.replace(src, dst)
+    title = re.sub(r"\s+", "", title).strip("：:；;,，")
     return title or None
 
 
@@ -113,6 +171,9 @@ def parse_invoice(path: Path) -> ParseResult:
         if m:
             invoice_no = m.group(1)
             break
+    # 文本中未能可靠提取号码时，回退到文件名携带的 20 位发票号。
+    if invoice_no is None:
+        invoice_no = _invoice_no_from_filename(path)
 
     amount: Decimal | None = None
     for pat in _AMOUNT_PATTERNS:
