@@ -1,6 +1,6 @@
 # Codex Session Schema → 统一事件流映射表
 
-基于本机真实数据验证（Codex CLI 0.137.x，2025-12 至 2026-06 的 rollout 文件）。`collect.py` 的 `codex_parse()` 按此表实现。
+旧格式基于 Codex CLI 0.137.x、2025-12 至 2026-06 的 rollout 文件。2026-10-15 增加 `item_completed/UserMessage` 格式兼容；新格式的具体发行版本未据此推定。`collect.py` 的 `codex_parse()` 按此表实现。
 
 ## 存储布局
 
@@ -37,19 +37,21 @@
 
 | type | 映射 | 说明 |
 |---|---|---|
-| `user_message` | `user` 事件，text=`payload.message` | **用户输入的权威来源**（干净文本）。需过滤以 `<environment_context>`、`<user_instructions>`、`<permissions` 开头的注入消息 |
+| `user_message` | `user` 事件，text=`payload.message` | 旧用户输入入口。过滤以 `<environment_context>`、`<user_instructions>`、`<permissions`、`<turn_context>` 开头的注入消息 |
+| `item_completed`，`item.type=UserMessage` | `user`，按顺序连接 `item.content` 内 `type=text` 的文本块 | 新用户输入入口；保留 payload.turn_id、item.id（缺失时用 client_id）。非文本/空内容不计文本消息 |
 | `token_count` | `tokens` 事件 | 取 `info.last_token_usage`（per-call 增量；`total_token_usage` 是累计值不要累加）。`info` 可为 null。口径对齐：`input = input_tokens - cached_input_tokens` |
 | `turn_aborted` (reason=`interrupted`) | `interrupt` 事件 | 用户打断 |
 | `web_search_end` | `tool_use(web_search)` | 置 uses_web_search |
 | `agent_message` | 忽略 | 与 `response_item.message(assistant)` 重复 |
-| `task_started/task_complete/context_compacted/thread_rolled_back/patch_apply_end/mcp_tool_call_end/item_completed/image_generation_end` | 忽略 | UI/状态事件 |
+| `task_started/task_complete/context_compacted/thread_rolled_back/patch_apply_end/mcp_tool_call_end/image_generation_end` | 忽略 | UI/状态事件 |
+| `item_completed` 的其他 item 类型 | 忽略 | AgentMessage 已有 response_item.message(assistant) 副本，不能再计一次；未知类型不猜测 |
 
 ## response_item.payload.type
 
 | type | 映射 | 说明 |
 |---|---|---|
 | `message` role=`assistant` | `assistant_text`，拼接 content 里 `output_text` 块 | |
-| `message` role=`user`/`developer` | 忽略 | user 文本走 event_msg.user_message；developer 是注入的系统内容 |
+| `message` role=`user`/`developer` | 忽略 | 用户文本走上表两个 event_msg 入口；response user 还含宿主注入内容，不能全部回退为人类输入 |
 | `reasoning` | 忽略 | 思维链不参与统计 |
 | `function_call` | `tool_use(name, JSON.parse(arguments))` | 工具调用主来源；保留 `id/call_id/turn_id` |
 | `custom_tool_call` | `tool_use(name)` | 主要是 `apply_patch`，patch 文本在 `payload.input` |
@@ -81,6 +83,23 @@
 ```
 
 排除 `+++`/`---`/`*** ` 前缀的行。文件路径计入 files_modified，扩展名映射语言。
+
+## 用户消息身份与轮次
+
+- 在 owned live 过滤之后处理新旧用户消息。同一 turn 内相同 native id 的重放只计一次；同一来源没有 id 的重复文本保留。
+- 新旧表示同时出现时，只有 native turn 相同、文本完全相同、native id 不冲突，才一对一配对。两个来源分别出现两次和一次时保留两条，不用全局文本集合去重。
+- 缺少 turn id 时，只有 native id 能证明重复；不会仅凭相同文本合并。不同 turn 或不同明确消息 id 的相同文本仍计为独立输入。
+- 无 id 的跨格式配对以“同 turn、同文本是双写表示”为兼容假设；极少数同一 turn 中切换格式后真正重复输入的记录可能无法区分，应保留原始快照供审计。
+- UserMessage 的 turn_id 用于归属，不新增模型配置事件。一个 turn 可以包含多条追加输入；例如合成回归为 7 条用户消息、24 条助手消息、6 个 native turn 模型配置。
+- 模型/强度仍从 turn_context 获取并按 turn_id 去重；旧记录缺少可用 turn_id 时保留其记录级统计，不用用户消息数补齐或猜测模型轮次。
+
+## 合成回归
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s skills/insights-aggregator/tests -v
+```
+
+从源仓根目录运行。测试只创建临时合成会话与独立 `--home`，覆盖新旧双写、重复输入、未知/空内容、归属隔离、冻结前缀、旧 meta/facet 失效、Claude 缓存保留及窗口/数量上限；不会扫描真实历史或调用模型。
 
 ## 其他信号
 

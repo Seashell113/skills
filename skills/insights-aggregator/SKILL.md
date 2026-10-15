@@ -51,7 +51,7 @@ python3 {skill_dir}/scripts/collect.py \
 
 读 `~/.agent-insights/work/pending_facets.json`。若为空（全部命中缓存）直接跳到 Step 3。
 
-按 `prompts/facet-extraction.md` 中的 PROMPT 模板，为每个待提取会话派发一个子 agent（替换 `{{transcript_path}}`、`{{facet_path}}`、`{{agent}}`、`{{session_id}}`、`{{user_message_count}}` 占位符，取值都在 pending_facets.json 里）。要点：
+按 `prompts/facet-extraction.md` 中的 PROMPT 模板，为每个待提取会话派发一个子 agent（替换 `{{transcript_path}}`、`{{facet_path}}`、`{{agent}}`、`{{session_id}}`、`{{user_message_count}}`、`{{parser_schema_version}}` 占位符，取值都在 pending_facets.json 里）。要点：
 
 - **并行**派发，每批 8-10 个；子 agent 用最快可用的模型即可（提取任务不需要最强模型）。若快模型报 429/不可用，直接降级用默认模型重试，不要反复重试快模型。
 - 子 agent 自己读 transcript、自己写 facet JSON 文件，主 agent 不要捧着 transcript 内容。
@@ -86,7 +86,8 @@ python3 {skill_dir}/scripts/render.py
 ## 增量与缓存
 
 - SessionMeta 按 `(agent, session_id)` 缓存，源 jsonl 文件的 mtime、mtime_ns、size、snapshot id 或 SHA-256 变化时自动重算（全量增量维护）。
-- facet 按 `(agent, session_id)` 永久缓存，仅当会话 resume 后大幅续写（消息 +5 条以上，依据 facet 内 `_user_message_count` 戳）才重提。
+- facet 按 `(agent, session_id)` 缓存。会话 resume 后大幅续写（消息 +5 条以上，依据 `_user_message_count` 戳）会重提；Codex 的 `_parser_schema_version` 缺失或不同也会重新排队，避免格式修复后继续使用漏读用户消息的旧结论。Claude facet 不因 Codex 解析升级而失效。
+- 解析升级后的首次正常采集可能重算 meta，并在已授权窗口及 `--max-facets` 上限内重提 Codex facet；采集器只生成待提取清单，不自行调用模型或覆盖旧 facet。当前 SessionMeta schema 为 12。
 - 同窗口重复运行、或不同时期的窗口有重叠时，重叠部分直接复用缓存，只为新会话付 LLM 成本。强制全量重提：删 `~/.agent-insights/cache/facets/`。
 
 ## 模型与成本视角（重要背景）
@@ -108,6 +109,7 @@ python3 {skill_dir}/scripts/render.py
 
 - **历史窗口不对称**：Claude Code 默认自动清理约 30 天前的会话记录（`cleanupPeriodDays`），Codex 全量保留。跨工具对比时看"使用模式"而非绝对数量；洞察提示词中已要求 LLM 注意此口径。建议用户在 Claude `settings.json` 中调大 `cleanupPeriodDays` 以积累数据。
 - **Codex rollout 不是天然的一会话一文件**：fork、resume 或 subagent 文件可能内嵌父会话历史。采集器以文件名和首条物理 `session_meta` 校验身份，区分 owned live、imported history 与 orphan；导入历史不计入物理会话指标。
+- Codex 用户消息兼容旧 `event_msg/user_message` 与新 `event_msg/item_completed/UserMessage`；同一 native turn 的不同表示按相同文本一对一配对，保留同一来源的重复输入与不同消息 ID。用户追加输入不等于新增模型轮次，模型/强度仍按 native turn 配置计数。完整去重边界见 `reference/codex-session-schema.md`。
 - 长会话不做 LLM 分块摘要，改为 120k 字符头尾截断（子 agent 上下文足够大，没必要多付一层摘要成本）。
 - Edit 行数统计用 `difflib`（对齐 `diffLines` 语义）；Codex 行数从 apply_patch 的 patch 文本解析。
 - Codex 的 token 口径取 `input_tokens - cached_input_tokens`，对齐 Claude 的"不含缓存读取"口径。
