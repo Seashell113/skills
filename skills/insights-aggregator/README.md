@@ -65,3 +65,5 @@ npx skills add https://github.com/Seashell113/skills.git -g --skill insights-agg
 Codex 的一个物理 rollout 可能包含继承的父会话历史。采集器会以文件名和首条 `session_meta` 校验物理会话，只将 owned live 事件计入指标；需要固定重跑口径时，可传入带 byte cutoff 与 SHA-256 的 `--codex-snapshot-manifest`。
 
 用户输入同时支持旧 `event_msg/user_message` 与新 `item_completed/UserMessage`，保留消息数和 native turn 模型配置数的区别。格式修复将 SessionMeta schema 升至 12；首次后续正常采集会在原窗口及数量上限内重新排队旧 Codex facet，不触发采集器自行调用模型，不使 Claude facet 因此失效。字段和本地回归命令见 [Codex 格式说明](reference/codex-session-schema.md)。
+
+旧 Codex facet 未完成刷新时，聚合报告保留有效会话统计，但不会消费过期摘要或用旧 warmup 分类排除会话；旧缓存文件保持原样。

@@ -63,7 +63,7 @@ python3 {skill_dir}/scripts/collect.py \
 python3 {skill_dir}/scripts/aggregate.py [--days 30] [--as-of 2026-08-27T13:56:10.186054+00:00]
 ```
 
-`--days` 必须与 Step 1 一致（统计与语义同窗，报告才是真正的"阶段报告"；`--days 0` 为全历史）。冻结重跑时传原报告的 `generated_at` 给 `--as-of`，避免窗口随当前日期漂移。读 stdout：`facets_used`、`cross_tool_overlap_events`、`handoff_direction_counts`。无效的 facet 文件会被静默忽略；若 `facets_used` 明显小于已提取数，检查 facet JSON 格式。
+`--days` 必须与 Step 1 一致（统计与语义同窗，报告才是真正的"阶段报告"；`--days 0` 为全历史）。冻结重跑时传原报告的 `generated_at` 给 `--as-of`，避免窗口随当前日期漂移。读 stdout：`facets_used`、`stale_codex_facets_ignored`、`cross_tool_overlap_events`、`handoff_direction_counts`。无效的 facet 文件会被忽略；若 `facets_used` 明显小于已提取数，检查 facet JSON 格式和解析版本。
 
 ### Step 4 — 洞察生成（并行子 agent + 1 个串行）
 
@@ -88,6 +88,7 @@ python3 {skill_dir}/scripts/render.py
 - SessionMeta 按 `(agent, session_id)` 缓存，源 jsonl 文件的 mtime、mtime_ns、size、snapshot id 或 SHA-256 变化时自动重算（全量增量维护）。
 - facet 按 `(agent, session_id)` 缓存。会话 resume 后大幅续写（消息 +5 条以上，依据 `_user_message_count` 戳）会重提；Codex 的 `_parser_schema_version` 缺失或不同也会重新排队，避免格式修复后继续使用漏读用户消息的旧结论。Claude facet 不因 Codex 解析升级而失效。
 - 解析升级后的首次正常采集可能重算 meta，并在已授权窗口及 `--max-facets` 上限内重提 Codex facet；采集器只生成待提取清单，不自行调用模型或覆盖旧 facet。当前 SessionMeta schema 为 12。
+- 聚合时也校验 Codex facet 的解析版本；过期语义不参与摘要、结果统计或 warmup 排除，当前有效 meta 统计仍保留。提取失败或数量上限截断时同样生效，不删除旧文件、不扩大重算范围；`stale_codex_facets_ignored` 表示本次保留的根会话中跳过旧语义的数量。
 - 同窗口重复运行、或不同时期的窗口有重叠时，重叠部分直接复用缓存，只为新会话付 LLM 成本。强制全量重提：删 `~/.agent-insights/cache/facets/`。
 
 ## 模型与成本视角（重要背景）

@@ -429,6 +429,9 @@ def codex_parse(path, session_id, byte_limit=None, expected_sha256=None):
                                "turn_id": current_turn_id})
         elif t == "event_msg":
             pt = p.get("type")
+            if (pt == "item_completed" and p.get("thread_id")
+                    and p["thread_id"] != session_id):
+                continue  # Explicit foreign ownership must not change this session's turn.
             current_turn_id = p.get("turn_id") or current_turn_id
             if pt == "user_message":
                 txt = p.get("message") or ""

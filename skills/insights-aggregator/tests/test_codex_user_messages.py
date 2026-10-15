@@ -121,6 +121,19 @@ class CodexUserMessageTests(unittest.TestCase):
                               row('session_meta', {'id': A}), user('owned')])
         self.assertEqual([e['text'] for e in session.events if e['kind'] == 'user'], ['owned'])
 
+    def test_explicit_foreign_thread_does_not_add_user_or_change_current_turn(self):
+        foreign = user('foreign', turn='foreign-turn', native_id='foreign')
+        foreign['payload']['thread_id'] = B
+        untagged = user('untagged', turn=None, native_id='untagged')
+        del untagged['payload']['thread_id']
+        session = self.parse([
+            user('owned'), foreign, untagged,
+            row('response_item', {'type': 'message', 'role': 'assistant',
+                                  'content': [{'type': 'output_text', 'text': 'owned reply'}]}),
+        ])
+        self.assertEqual([e['text'] for e in session.events if e['kind'] == 'user'], ['owned', 'untagged'])
+        self.assertEqual({e['turn_id'] for e in session.events}, {'turn-1'})
+
     def test_frozen_prefix_does_not_read_appended_messages(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / f'rollout-test-{A}.jsonl'
@@ -170,6 +183,60 @@ class CodexUserMessageTests(unittest.TestCase):
             rollout.write_text(rollout.read_text().replace('2026-10-15', '2000-01-01'))
             facet_path.write_text(json.dumps({'_user_message_count': 0}))
             self.assertEqual(run(['--days', '1'])['pending_facets'], 0)
+
+    def test_aggregation_ignores_stale_semantics_after_failed_or_capped_refresh(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); home = root / 'insights'; codex = root / 'codex'; claude = root / 'claude'
+            rollout = codex / 'sessions' / f'rollout-test-{A}.jsonl'
+            write_rollout(rollout, [row('session_meta', {'id': A}), user('real request'),
+                                    user('real followup', native_id='two', turn='turn-2', minute=2)])
+            write_rollout(claude / 'projects/synthetic/claude-test.jsonl', [
+                {'type': 'user', 'uuid': 'c-1', 'parentUuid': None, 'timestamp': '2026-10-14T00:00:00Z',
+                 'message': {'role': 'user', 'content': 'first request'}},
+                {'type': 'user', 'uuid': 'c-2', 'parentUuid': 'c-1', 'timestamp': '2026-10-14T00:02:00Z',
+                 'message': {'role': 'user', 'content': 'second request'}},
+            ])
+            collect_args = [sys.executable, str(SCRIPT_DIR / 'collect.py'), '--home', str(home),
+                            '--codex-dir', str(codex), '--claude-dir', str(claude), '--days', '0']
+            aggregate_args = [sys.executable, str(SCRIPT_DIR / 'aggregate.py'), '--home', str(home), '--days', '0']
+            def run(args):
+                return json.loads(subprocess.run(args, check=True, capture_output=True, text=True).stdout)
+            run(collect_args)
+            base_facet = {'underlying_goal': 'goal', 'outcome': 'fully_achieved', 'brief_summary': 'summary',
+                          'goal_categories': {'coding': 1}, 'user_satisfaction_counts': {}, 'friction_counts': {}}
+            codex_facet = home / 'cache/facets/codex' / f'{A}.json'
+            claude_facet = home / 'cache/facets/claude-code/claude-test.json'
+            claude_bytes = json.dumps({**base_facet, 'agent': 'claude-code', 'session_id': 'claude-test',
+                                      '_user_message_count': 2, 'brief_summary': 'valid Claude summary'})
+            claude_facet.write_text(claude_bytes)
+            for cap in (0, 1):
+                for old_schema in (None, SCHEMA_VERSION - 1):
+                    for categories in ({'coding': 1}, {'warmup_minimal': 1}):
+                        with self.subTest(cap=cap, old_schema=old_schema, categories=categories):
+                            stale = {**base_facet, 'agent': 'codex', 'session_id': A,
+                                     '_user_message_count': 0, 'brief_summary': 'STALE SUMMARY',
+                                     'goal_categories': categories}
+                            if old_schema is not None:
+                                stale['_parser_schema_version'] = old_schema
+                            stale_bytes = json.dumps(stale); codex_facet.write_text(stale_bytes)
+                            collection = run([*collect_args, '--max-facets', str(cap)])
+                            self.assertEqual(collection['pending_facets'], cap)
+                            # Deliberately do not execute pending work, as when facet extraction fails.
+                            result = run(aggregate_args)
+                            aggregated = json.loads((home / 'work/aggregated.json').read_text())
+                            self.assertEqual(result['sessions_after_filter'], 2)
+                            self.assertEqual(result['facets_used'], 1)
+                            self.assertEqual(result['stale_codex_facets_ignored'], 1)
+                            self.assertEqual(aggregated['combined']['total_messages'], 4)
+                            self.assertNotIn('STALE SUMMARY', (home / 'work/insight-context.md').read_text())
+                            self.assertEqual(codex_facet.read_text(), stale_bytes)
+                            self.assertEqual(claude_facet.read_text(), claude_bytes)
+            codex_facet.write_text(json.dumps({**base_facet, 'agent': 'codex', 'session_id': A,
+                                              '_user_message_count': 2, '_parser_schema_version': SCHEMA_VERSION}))
+            result = run(aggregate_args)
+            self.assertEqual(result['sessions_after_filter'], 2)
+            self.assertEqual(result['facets_used'], 2)
+            self.assertEqual(result['stale_codex_facets_ignored'], 0)
 
 
 if __name__ == '__main__':
