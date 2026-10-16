@@ -35,7 +35,7 @@ from datetime import datetime, timedelta, timezone
 from codex_segments import read_owned_codex_stream
 
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 INTERRUPT_MARKER = "[Request interrupted by user"
 # Claude Code 把 /command 的本地执行记录也写成 user 消息，不是人类输入
 CLAUDE_NOISE_RE = re.compile(
@@ -365,6 +365,38 @@ def _codex_patch_stats(patch_text, events, ts):
                    "input": {"_files": files, "_added": added, "_removed": removed}})
 
 
+def _deduplicate_codex_users(events):
+    """Pair legacy/completed representations, never collapse same-source repeats."""
+    result, identities, representations = [], set(), {}
+    for event in events:
+        if event["kind"] != "user":
+            result.append(event)
+            continue
+        source = event.pop("_representation")
+        turn_id, native_id = event.get("turn_id"), event.get("native_id")
+        identity = (turn_id, native_id)
+        if native_id and identity in identities:
+            continue
+        if native_id:
+            identities.add(identity)
+        # Without a native turn, text is not sufficient evidence to pair records.
+        key = (turn_id, event["text"]) if turn_id else None
+        matches = representations.get(key, []) if key else []
+        match = next((entry for entry in matches
+                      if source not in entry["sources"]
+                      and (not native_id or not entry["event"].get("native_id")
+                           or native_id == entry["event"]["native_id"])), None)
+        if match:
+            match["sources"].add(source)
+            if native_id:
+                match["event"]["native_id"] = native_id
+            continue
+        result.append(event)
+        if key:
+            representations.setdefault(key, []).append({"event": event, "sources": {source}})
+    return result
+
+
 def codex_parse(path, session_id, byte_limit=None, expected_sha256=None):
     events, project_path, source = [], "", None
     start, thread_source = None, None
@@ -397,12 +429,30 @@ def codex_parse(path, session_id, byte_limit=None, expected_sha256=None):
                                "turn_id": current_turn_id})
         elif t == "event_msg":
             pt = p.get("type")
+            if (pt == "item_completed" and p.get("thread_id")
+                    and p["thread_id"] != session_id):
+                continue  # Explicit foreign ownership must not change this session's turn.
             current_turn_id = p.get("turn_id") or current_turn_id
             if pt == "user_message":
                 txt = p.get("message") or ""
-                if txt.strip() and not CODEX_WRAPPER_RE.match(txt.strip()):
+                if isinstance(txt, str) and txt.strip() and not CODEX_WRAPPER_RE.match(txt.strip()):
                     events.append({"kind": "user", "ts": ts, "text": txt,
-                                   "turn_id": current_turn_id})
+                                   "turn_id": current_turn_id,
+                                   "native_id": p.get("id"), "_representation": "legacy"})
+            elif pt == "item_completed":
+                item = p.get("item") or {}
+                if isinstance(item, dict) and item.get("type") == "UserMessage":
+                    content = item.get("content") or []
+                    if not isinstance(content, list):
+                        continue
+                    txt = "\n".join(block["text"] for block in content
+                                    if isinstance(block, dict) and block.get("type") == "text"
+                                    and isinstance(block.get("text"), str))
+                    if txt.strip() and not CODEX_WRAPPER_RE.match(txt.strip()):
+                        events.append({"kind": "user", "ts": ts, "text": txt,
+                                       "turn_id": current_turn_id,
+                                       "native_id": item.get("id") or item.get("client_id"),
+                                       "_representation": "completed"})
             elif pt == "token_count":
                 info = p.get("info") or {}
                 last = info.get("last_token_usage") or {}
@@ -478,6 +528,7 @@ def codex_parse(path, session_id, byte_limit=None, expected_sha256=None):
                                "turn_id": current_turn_id,
                                "call_id": p.get("call_id"),
                                "native_id": p.get("id")})
+    events = _deduplicate_codex_users(events)
     tss = [ev["ts"] for ev in events if ev["ts"]]
     if not tss:
         if start:
@@ -821,7 +872,10 @@ def main():
             stale = False
             try:
                 with open(facet_path, encoding="utf-8") as fh:
-                    old_count = json.load(fh).get("_user_message_count")
+                    facet = json.load(fh)
+                    old_count = facet.get("_user_message_count")
+                if m["agent"] == "codex" and facet.get("_parser_schema_version") != SCHEMA_VERSION:
+                    stale = True  # Parser fixes can change transcript meaning without +5 messages.
                 if old_count is not None and m["user_message_count"] - old_count >= 5:
                     stale = True  # resume 后大幅续写，语义结论可能已过期
             except (json.JSONDecodeError, OSError):
@@ -856,6 +910,7 @@ def main():
         pending.append({"agent": m["agent"], "session_id": m["session_id"],
                         "transcript_path": tpath, "facet_path": facet_path,
                         "user_message_count": m["user_message_count"],
+                        "parser_schema_version": SCHEMA_VERSION,
                         "chars": os.path.getsize(tpath)})
 
     with open(os.path.join(home, "work/pending_facets.json"), "w", encoding="utf-8") as fh:

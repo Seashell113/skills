@@ -16,6 +16,8 @@ import os
 import sys
 from datetime import datetime, timedelta, timezone
 
+from collect import SCHEMA_VERSION
+
 HANDOFF_WINDOW_MIN = 45      # 同项目跨工具接力窗口
 OVERLAP_WINDOW_MS = 30 * 60_000  # 并行检测滑动窗口（与源码一致）
 MAX_SUMMARIES = 60
@@ -405,10 +407,15 @@ def main():
             .isoformat().replace("+00:00", "Z")
         metas = [m for m in metas if m["start_time"] >= cutoff_iso]
     facets_raw = []
+    stale_codex_facet_keys = set()
     for agent in ("claude-code", "codex"):
         for f in load_dir(os.path.join(home, "cache/facets", agent)):
             if valid_facet(f):
                 f.setdefault("agent", agent)
+                if (f["agent"] == "codex"
+                        and f.get("_parser_schema_version") != SCHEMA_VERSION):
+                    stale_codex_facet_keys.add(("codex", f.get("session_id")))
+                    continue
                 facets_raw.append(f)
 
     facets_by_key = {(f["agent"], f["session_id"]): f for f in facets_raw if f.get("session_id")}
@@ -438,10 +445,14 @@ def main():
     metas = sorted(best.values(), key=lambda m: m["start_time"], reverse=True)
     used_facets = [facets_by_key[k] for k in ((m["agent"], m["session_id"]) for m in metas)
                    if k in facets_by_key]
+    stale_codex_facets_ignored = sum(
+        (m["agent"], m["session_id"]) in stale_codex_facet_keys for m in metas
+    )
 
     internal_group = aggregate_group(internal, facets_by_key)
     agg = {
         "generated_at": as_of.isoformat(),
+        "stale_codex_facets_ignored": stale_codex_facets_ignored,
         "window": {"days": args.days, "cutoff": cutoff_iso[:10] if cutoff_iso else None,
                    "as_of": as_of.isoformat()},
         "internal_sessions_excluded": len(internal),
@@ -478,6 +489,7 @@ def main():
         "internal_sessions_excluded": len(internal),
         "by_agent": {a: g["total_sessions"] for a, g in agg["by_agent"].items()},
         "facets_used": len(used_facets),
+        "stale_codex_facets_ignored": stale_codex_facets_ignored,
         "cross_tool_overlap_events": agg["cross_tool"]["overlap"]["cross_tool_overlap_events"],
         "handoff_direction_counts": agg["cross_tool"]["handoffs"]["direction_counts"],
         "aggregated": out, "insight_context": ctx_path,
