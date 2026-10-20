@@ -1,5 +1,5 @@
 ---
-name: technical-writing
+name: natural-writing
 description: 根据素材撰写中文技术方案、说明文档和页面正文时使用；也用于用户要求润色、精简、说人话或减少 AI 味的文案编辑。默认面向技术读者，保留原意和已经清楚的表述。只处理表达与组织；单纯技术选型、代码实现或视觉排版任务不单独触发。
 metadata:
   version: "0.1.0"

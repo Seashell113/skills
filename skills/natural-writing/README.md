@@ -1,4 +1,4 @@
-# technical-writing
+# natural-writing
 
 中文技术材料写作与编辑，默认面向技术读者。通用、无脚本或外部服务依赖，当前为 0.1.0 试用版。
 
@@ -9,26 +9,38 @@
 ## 使用
 
 ```text
-$technical-writing 根据这些材料写一份给技术团队看的说明。
+$natural-writing 根据这些材料写一份给技术团队看的说明。
 ```
 
 ```text
-$technical-writing 把这份初稿改得自然一点。
+$natural-writing 把这份初稿改得自然一点。
 ```
 
 明确面向非技术读者时，在任务中说明。按需求输出 Markdown 或页面正文，不强制套用固定结构，也不附加长篇改写说明。
 
 ## 安装与分发
 
-支持 Skill 的 Agent 可读取本目录中的 `SKILL.md`。安装到 Codex 的本机示例：
+个人仓是开发与更新来源，团队仓同步相同版本用于分发。个人用户从个人仓安装；团队成员可从团队仓安装。两者同名，重装会覆盖同名安装，请固定自己的更新来源。
+
+个人仓（Codex）：
 
 ```bash
-npx skills add ./technical-writing -g -a codex --skill technical-writing -y
+npx skills add https://github.com/Seashell113/skills.git -g -a codex --skill natural-writing -y
 ```
 
-其中 `./technical-writing` 是解压后的目录。其他 Agent 按其安装约定选择目标；`.skill` 包使用 ZIP 格式，需要目录的工具可先解压，不能导入 `.skill` 的工具不必直接导入该扩展名。
+团队仓（需要仓库读取权限）：
 
-当前试用版尚未发布到仓库主线，不使用远端默认分支安装命令。更新时从维护者提供的新版本重新安装。
+```bash
+npx skills add git@git.igancao.com:frontend-web/ai-coding/skills.git -g -a codex --skill natural-writing -y
+```
+
+以上命令用于合入主线后的版本。评审期间可从对应 PR/MR 分支检出仓库，再执行：
+
+```bash
+npx skills add . -g -a codex --skill natural-writing -y
+```
+
+更新时重新执行自己来源的安装命令。其他 Agent 按需调整 `-a`。也可复制本目录安装；`.skill` 包是 ZIP 格式，需要目录的工具可先解压。
 
 ## 验证情况
 
