@@ -1,7 +1,7 @@
 # Seashell's Skills
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Public Skills](https://img.shields.io/badge/public_skills-11-brightgreen.svg)](#skill-清单)
+[![Public Skills](https://img.shields.io/badge/public_skills-12-brightgreen.svg)](#skill-清单)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-orange.svg)](CONTRIBUTING.md)
 
 可复用的 AI Agent 技能（Skill）集合，面向 Claude Code、Codex 以及其他支持技能机制的 Agent 工具。
@@ -20,6 +20,7 @@ Skill 是给 AI Agent 读的能力说明书：每个技能以一份 `SKILL.md` �
 | --- | --- | --- | --- |
 | 会话治理 | [codex-thread-organizer](skills/codex-thread-organizer/) | Codex 会话需要命名、收口、handoff 或回溯 | 会话标题、收口摘要、交接包 |
 | 模型协作 | [codex-chatgpt-dispatch](skills/codex-chatgpt-dispatch/) | 需要把 Codex 本地现场交给 ChatGPT 网页指定档位完成复审或生图 | 直接提示词、可选 handoff、文本或图片结果、本地核验结论 |
+| 技术写作 | [technical-writing](skills/technical-writing/) | 根据素材生成中文技术材料，或按需编辑初稿；通用试用版 | 说明文档、技术方案正文、页面文案 |
 | 阅读交付 | [human-html-artifact](skills/human-html-artifact/) | 长文档、方案、review 或多文档摘录难以线性阅读 | 自包含 HTML 阅读页 |
 | 本地自动化 | [codex-quota-inspector](skills/codex-quota-inspector/) | 查询 Codex 普通额度和 ChatGPT 免费重置机会 | 脱敏额度快照 |
 | 本地自动化 | [invoice-reimbursement-bundler](skills/invoice-reimbursement-bundler/) | 本地发票 PDF 需要统计、查重、凑金额和打包 | 报销组合、结果目录 |
@@ -72,6 +73,19 @@ $codex-chatgpt-dispatch 用页面当前非 Pro 档位生成一张配图，保存
 scan
 先预览最近 10 个会话的高置信改名建议，跳过 Automation 和 needs-review
 ```
+
+### technical-writing
+
+**定位**：中文技术材料的表达与组织，默认面向技术读者。通用、无外部依赖，当前为轻量试用版。
+
+```text
+$technical-writing 根据这些材料写一份给技术团队看的说明。
+$technical-writing 把这份初稿改得自然一点。
+```
+
+保持直白、精炼、易读，保留常用技术术语和必要条件。小样本生成对照获得正向偏好，已有文稿改写的额外收益尚不明确；不承诺自动消除所有 AI 味。
+
+详情：[README](skills/technical-writing/README.md) / [SKILL.md](skills/technical-writing/SKILL.md) / [验证记录](docs/validation/technical-writing-trial-2026-10-20.md)
 
 ### human-html-artifact
 
