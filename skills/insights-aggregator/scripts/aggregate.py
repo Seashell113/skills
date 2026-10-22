@@ -11,12 +11,15 @@
 """
 
 import argparse
+import copy
 import json
 import os
 import sys
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 
 from collect import SCHEMA_VERSION
+from evidence_bundle import load_bundle
 
 HANDOFF_WINDOW_MIN = 45      # 同项目跨工具接力窗口
 OVERLAP_WINDOW_MS = 30 * 60_000  # 并行检测滑动窗口（与源码一致）
@@ -336,7 +339,7 @@ def build_context(agg, facets):
 
     lines.append("\n## Context notes（解读数据前必读）")
     w = agg.get("window") or {}
-    if w.get("days"):
+    if w.get("days") and agg.get("input_mode") != "evidence_bundle":
         lines.append(f"- 本报告是**阶段性窗口报告**：只覆盖最近 {w['days']} 天（{w.get('cutoff')} 之后）的会话，"
                      "统计与语义同窗。叙事请立足'这个阶段'，不要写成全历史总结。")
     lines.append("- 跨工具混用的常见动因是**成本控制**而非单纯能力偏好：Codex 走官方模型，"
@@ -379,6 +382,30 @@ def build_context(agg, facets):
             instr.append(f"- [{f.get('agent', '?')}] {i}")
     lines.append("\n## Repeated user instructions to agents")
     lines.extend(instr[:MAX_INSTRUCTIONS] if instr else ["- None captured"])
+    for key, title in (("selection", "Selection and sample limitations"),
+                       ("sources", "Traceable evidence sources"),
+                       ("knowledge_candidates", "Optional historical knowledge candidates"),
+                       ("infrastructure_observations", "Optional infrastructure observations")):
+        if agg.get(key):
+            lines.extend([f"\n## {title}", "```json",
+                          json.dumps(agg[key], ensure_ascii=False, indent=1), "```"])
+    if agg.get("input_mode") == "evidence_bundle":
+        lines.extend(["\n## Evidence bundle interpretation",
+                      "- 此输入复用已准备证据；未重新采集，不代表全量随机样本。直接阅读不等于完成 facet。",
+                      "- null 以及不在 available_metrics 中的字段均为未知/未采集，不能解释为 0。",
+                      "- 未提供跨工具指标时，空容器是显示占位，不能解释为没有并行或接力。",
+                      "- 同一工具内部的 Agent/subagent/Skill/model/tool 可独立分析；单工具不生成跨工具对比。",
+                      "```json", json.dumps({"combined": c.get("available_metrics"),
+                      "by_agent": {a: g.get("available_metrics") for a, g in agg["by_agent"].items()},
+                      "cross_tool_metrics_available": agg.get("cross_tool_metrics_available")},
+                      ensure_ascii=False, indent=1), "```"])
+    # Optional facet fields are candidates, never instructions or adopted policy.
+    for key in ("knowledge_candidates", "infrastructure_observations"):
+        candidates = [{"session_id": f.get("session_id"), "agent": f.get("agent"), "items": f[key]}
+                      for f in facets if f.get(key)]
+        if candidates:
+            lines.extend([f"\n## Facet {key}", "```json",
+                          json.dumps(candidates, ensure_ascii=False, indent=1), "```"])
     return "\n".join(lines)
 
 
@@ -389,8 +416,17 @@ def main():
     ap.add_argument("--home", default=os.path.expanduser("~/.agent-insights"))
     ap.add_argument("--days", type=int, default=30, help="报告窗口：最近 N 天（0=全历史），统计与语义同窗")
     ap.add_argument("--as-of", help="冻结窗口截止时间（ISO 8601；默认当前 UTC 时间）")
+    ap.add_argument("--evidence-bundle", help="复用已准备证据与已知统计；跳过会话缓存采集/聚合")
     args = ap.parse_args()
     home = args.home
+    if args.evidence_bundle:
+        try:
+            agg = load_bundle(args.evidence_bundle, aggregate_group([], {}), parse_iso)
+        except (ValueError, OSError) as exc:
+            ap.error(str(exc))
+        write_outputs(home, agg, [])
+        return
+
 
     as_of = parse_iso(args.as_of) if args.as_of else datetime.now(timezone.utc)
     if as_of is None:
@@ -475,22 +511,56 @@ def main():
         },
     }
 
+    write_outputs(home, agg, used_facets)
+
+
+def namespace_facet_sources(facets):
+    """Keep cached facets intact; local S1 ids are only meaningful within a session."""
+    result = copy.deepcopy(facets)
+    for facet in result:
+        prefix = "facet/" + "/".join(quote(str(facet.get(key) or ""), safe="")
+                                      for key in ("agent", "session_id")) + "/"
+        sources = facet.get("sources") or []
+        ids = [source.get("id") for source in sources]
+        if any(not isinstance(source_id, str) or not source_id for source_id in ids):
+            raise ValueError("facet sources require nonempty string ids")
+        if len(ids) != len(set(ids)):
+            raise ValueError(f"duplicate source ids within facet {facet.get('session_id')}")
+        def source_id(local_id):
+            return prefix + quote(local_id, safe="")
+        for source in sources:
+            source["id"] = source_id(source["id"])
+            source.setdefault("session_id", facet.get("session_id"))
+        for key in ("knowledge_candidates", "infrastructure_observations"):
+            for item in facet.get(key) or []:
+                # Namespace unresolved references too: they must not match another session's id.
+                item["evidence"] = [source_id(value) for value in item.get("evidence") or []]
+    return result
+
+
+def write_outputs(home, agg, used_facets):
+    if agg.get("input_mode") != "evidence_bundle":
+        used_facets = namespace_facet_sources(used_facets)
     os.makedirs(os.path.join(home, "work"), exist_ok=True)
     out = os.path.join(home, "work/aggregated.json")
+    if "sources" not in agg:
+        agg["sources"] = [source for f in used_facets for source in f.get("sources") or []]
     with open(out, "w", encoding="utf-8") as fh:
         json.dump(agg, fh, ensure_ascii=False, indent=1)
+    os.chmod(out, 0o600)
     ctx = build_context(agg, used_facets)
     ctx_path = os.path.join(home, "work/insight-context.md")
     with open(ctx_path, "w", encoding="utf-8") as fh:
         fh.write(ctx)
-
+    os.chmod(ctx_path, 0o600)
     print(json.dumps({
-        "sessions_after_filter": len(metas),
-        "internal_sessions_excluded": len(internal),
+        "sessions_after_filter": agg["combined"]["total_sessions"],
+        "input_mode": agg.get("input_mode", "session_cache"),
+        "internal_sessions_excluded": agg.get("internal_sessions_excluded"),
         "by_agent": {a: g["total_sessions"] for a, g in agg["by_agent"].items()},
-        "facets_used": len(used_facets),
-        "stale_codex_facets_ignored": stale_codex_facets_ignored,
-        "cross_tool_overlap_events": agg["cross_tool"]["overlap"]["cross_tool_overlap_events"],
+        "facets_used": agg["combined"]["sessions_with_facets"],
+        "stale_codex_facets_ignored": agg.get("stale_codex_facets_ignored"),
+        "cross_tool_overlap_events": agg["cross_tool"]["overlap"].get("cross_tool_overlap_events"),
         "handoff_direction_counts": agg["cross_tool"]["handoffs"]["direction_counts"],
         "aggregated": out, "insight_context": ctx_path,
         "context_chars": len(ctx),

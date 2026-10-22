@@ -51,6 +51,7 @@ SATISFACTION_ORDER = ["frustrated", "dissatisfied", "likely_satisfied", "satisfi
 OUTCOME_ORDER = ["not_achieved", "partially_achieved", "mostly_achieved", "fully_achieved", "unclear_from_transcript"]
 EFFORT_ORDER = ["low", "medium", "high", "xhigh", "max", "ultra"]
 HIGH_EFFORTS = {"high", "xhigh", "max", "ultra"}
+TEXT_SOURCE_ANCHORS = {}
 AGENT_BADGE = {"claude-code": ("Claude Code", "#d97706"), "codex": ("Codex", "#0ea5e9")}
 
 
@@ -59,7 +60,17 @@ def esc(s):
 
 
 def md_bold(s):
-    return re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", esc(s))
+    text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", esc(s))
+    if TEXT_SOURCE_ANCHORS:
+        escaped_ids = {esc(source_id): anchor for source_id, anchor in TEXT_SOURCE_ANCHORS.items()}
+        ids = "|".join(re.escape(source_id) for source_id in sorted(escaped_ids, key=len, reverse=True))
+        pattern = re.compile(r"(?<![\w.-])(?:" + ids + r")(?![\w.-])")
+        def link_group(match):
+            return match.group(1) + pattern.sub(
+                lambda token: f'<a href="#{escaped_ids[token.group(0)]}">{token.group(0)}</a>',
+                match.group(2)) + match.group(3)
+        text = re.sub(r"([（(])([^()（）]+)([）)])", link_group, text)
+    return text
 
 
 def md_html(md):
@@ -141,6 +152,69 @@ def copy_block(text, lbl="粘贴给你的 Agent："):
             f'<button class="copy-btn" onclick="copyText(this)">复制</button></div></div>')
 
 
+def metric(value, spec="", suffix=""):
+    return "未知" if value is None else format(value, spec) + suffix
+
+
+def source_anchors(sources):
+    # Preserve readable ids (E16), encode arbitrary ids without using them as markup.
+    return {source["id"]: "source-" + (source["id"] if re.fullmatch(r"[A-Za-z0-9_.-]+", source["id"])
+                                      else ":" + source["id"].encode("utf-8").hex())
+            for source in sources}
+
+
+def evidence_sections(ins, sources):
+    anchors = source_anchors(sources)
+
+    def references(ids):
+        refs = []
+        for source_id in ids or []:
+            if source_id in anchors:
+                refs.append(f'<a href="#{anchors[source_id]}">{esc(source_id)}</a>')
+            else:
+                refs.append(f'{esc(source_id)}（来源未提供）')
+        return '<div class="feedback-evidence">依据：' + ('、'.join(refs) or '未知') + '</div>'
+
+    sections = []
+    for key, anchor, title, items_key, fields in (
+        ("knowledge_findings", "section-knowledge", "历史知识与经验", "findings",
+         (("finding", "结论"), ("reuse", "复用场景"), ("status", "结论状态"), ("limits", "边界"))),
+        ("infrastructure_effectiveness", "section-infrastructure", "Agent 与基建效果", "assessments",
+         (("purpose", "目的"), ("observed_result", "观察结果"),
+          ("alternative_and_cost", "替代方案与成本"), ("decision", "处置建议"),
+          ("next_check", "下次核验"), ("limits", "边界"))),
+    ):
+        section = ins.get(key) or {}
+        if not section:
+            sections.append("")
+            continue
+        cards = []
+        for item in section.get(items_key) or []:
+            primary = {"finding"} if key == "knowledge_findings" else {"observed_result", "decision"}
+            rows, details = [], []
+            for field, lbl in fields:
+                row = f'<div class="card-line"><strong>{lbl}：</strong>{md_bold(item.get(field) or "未知")}</div>'
+                (rows if field in primary else details).append(row)
+            expanded = ''.join(rows)
+            extra = ('<details><summary class="card-line">复用场景、状态与边界</summary>'
+                     if key == "knowledge_findings" else
+                     '<details><summary class="card-line">目的、替代成本与后续验证</summary>')
+            extra += ''.join(details) + '</details>'
+            cards.append(f'<div class="pattern-card"><div class="card-title">{esc(item.get("title") or item.get("name"))}</div>'
+                         + expanded + references(item.get("evidence")) + extra + '</div>')
+        sections.append(f'<h2 id="{anchor}">{title}</h2><p class="section-intro">{esc(section.get("intro"))}</p>'
+                        + '<div class="patterns-section">' + ''.join(cards) + '</div>')
+    sources_html = ""
+    if sources:
+        cards = ''.join(f'<div class="project-area" id="{anchors[source["id"]]}"><div class="card-title">{esc(source["id"])} · {esc(source.get("title"))}</div>'
+                        f'<div class="card-line">会话：{esc(source.get("session_id"))}</div>'
+                        f'<div class="card-line">{esc(source.get("locator"))}</div>'
+                        f'<div class="card-line">{esc(source.get("summary"))}</div></div>'
+                        for i, source in enumerate(sources))
+        sources_html = '<h2 id="section-sources">来源与核验入口</h2><div class="project-areas">' + cards + '</div>'
+    return *sections, sources_html
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--home", default=os.path.expanduser("~/.agent-insights"))
@@ -161,25 +235,47 @@ def main():
                 except (json.JSONDecodeError, OSError):
                     pass
 
+    TEXT_SOURCE_ANCHORS.clear()
+    TEXT_SOURCE_ANCHORS.update(source_anchors(agg.get("sources") or []))
     c = agg["combined"]
     by_agent = agg["by_agent"]
     cross = agg["cross_tool"]
     multi_tool = len(by_agent) > 1
     window = agg.get("window") or {}
-    window_label = f"近 {window['days']} 天" if window.get("days") else "全部历史"
+    evidence_mode = agg.get("input_mode") == "evidence_bundle"
+    window_label = (f"选样范围 {window.get('cutoff') or '未知'} 至 {window.get('as_of') or agg.get('generated_at')}"
+                    if evidence_mode else
+                    (f"近 {window['days']} 天" if window.get("days") else "全部历史"))
     n_internal = agg.get("internal_sessions_excluded") or 0
     internal_note = f" · 已排除 {n_internal} 个子代理/自动评审会话" if n_internal else ""
 
     # ---- 顶部统计 ----
+    selection = agg.get("selection") or {}
+    semantic_stat = ((metric(selection.get("direct_read_sessions")), "直接阅读任务")
+                     if evidence_mode and "direct_read_sessions" in selection else
+                     (f"{metric(c['sessions_with_facets'])}/{metric(c['total_sessions'])}", "语义深析"))
     stats = [
-        (f"{c['total_sessions']}", "会话"),
-        (f"{c['sessions_with_facets']}/{c['total_sessions']}", "语义深析"),
-        (f"{c['total_messages']:,}", "消息"),
-        (f"{c['total_duration_hours']:.0f}h", "活跃时长"),
-        (f"{c['git_commits']}", "提交"),
-        (f"+{c['total_lines_added']:,}/-{c['total_lines_removed']:,}", "代码行"),
-        (f"{c['days_active']}", "活跃天数"),
+        (metric(c['total_sessions']), "选样会话" if evidence_mode else "会话"),
+        semantic_stat,
+        (metric(c['total_messages'], ","), "用户消息" if evidence_mode else "消息"),
+        (metric(c['total_duration_hours'], ".0f", "h"), "活跃时长"),
+        (metric(c['git_commits']), "提交"),
+        ((f"+{c['total_lines_added']:,}/-{c['total_lines_removed']:,}"
+          if c['total_lines_added'] is not None and c['total_lines_removed'] is not None else "未知"), "代码行"),
+        (metric(c['days_active']), "用户活跃天数" if evidence_mode else "活跃天数"),
     ]
+    scope_html = ""
+    method_html = ""
+    if evidence_mode:
+        unknown_stats = [name for value, name in stats if value == "未知"]
+        stats = [(value, name) for value, name in stats if value != "未知"]
+        scope_html = (f'<p class="section-intro">{metric(c["total_sessions"])} 个选中任务；'
+                      f'直接阅读 {metric(selection.get("direct_read_sessions"))} 个任务。样本口径见来源与方法。</p>')
+        method_html = ('<div class="narrative"><p>选样方法：' + esc(selection.get("method"))
+                       + '</p><p>覆盖与限制：' + esc(selection.get("limits"))
+                       + '</p><p>仅展示已提供的统计；未知不代表零。直接阅读任务不计作 facet 提取。</p>'
+                       + ('<p>未采集：' + esc('、'.join(unknown_stats)) + '。</p>' if unknown_stats else '')
+                       + (f'<p>{esc(selection["scope_note"])}</p>' if selection.get("scope_note") else '') + '</div>')
     stats_html = "".join(f'<div class="stat"><div class="stat-value">{esc(v)}</div>'
                          f'<div class="stat-label">{esc(l)}</div></div>' for v, l in stats)
 
@@ -188,13 +284,13 @@ def main():
     glance_items = [("行之有效", g.get("whats_working"), "#section-wins"),
                     ("卡点所在", g.get("whats_hindering"), "#section-friction"),
                     ("工具分工", g.get("tool_division"), "#section-toolcmp"),
-                    ("值得做的", g.get("quick_wins"), "#section-features"),
+                    ("值得做的", g.get("quick_wins"), "#section-features" if (ins.get("suggestions") or {}).get("config_additions") else ("#section-patterns" if (ins.get("suggestions") or {}).get("usage_patterns") else None)),
                     ("未来规划", g.get("ambitious_workflows"), "#section-horizon")]
     glance_html = ""
     if any(v for _, v, _ in glance_items):
         rows = "".join(f'<div class="glance-section"><strong>{t}：</strong>{md_bold(v)}'
-                       f' <a href="{a}" class="see-more">详见 →</a></div>'
-                       for t, v, a in glance_items if v)
+                       + (f' <a href="{a}" class="see-more">详见 →</a>' if a else '') + '</div>'
+                       for t, v, a in glance_items if v and (multi_tool or t != "工具分工"))
         glance_html = f'<div class="at-a-glance"><div class="glance-title">速览</div><div class="glance-sections">{rows}</div></div>'
 
     # ---- 工具总览表 ----
@@ -213,11 +309,11 @@ def main():
         else:
             depth = "—"
         tool_rows += (f"<tr><td>{badge(agent)}</td><td><code class='model-name'>{esc(main_model)}</code></td>"
-                      f"<td>{depth}</td><td>{a['total_sessions']}</td>"
-                      f"<td>{a['total_duration_hours']:.0f}h</td><td>{a['total_messages']:,}</td>"
-                      f"<td>{a['git_commits']}</td><td>+{a['total_lines_added']:,}/-{a['total_lines_removed']:,}</td>"
-                      f"<td>{a['total_tool_errors']}</td><td>{a['total_interruptions']}</td>"
-                      f"<td>{pos * 100 // tot_sat}%</td><td>{ach * 100 // tot_out}%</td></tr>")
+                      f"<td>{depth}</td><td>{metric(a['total_sessions'])}</td>"
+                      f"<td>{metric(a['total_duration_hours'], '.0f', 'h')}</td><td>{metric(a['total_messages'], ',')}</td>"
+                      f"<td>{metric(a['git_commits'])}</td><td>+{metric(a['total_lines_added'], ',')}/-{metric(a['total_lines_removed'], ',')}</td>"
+                      f"<td>{metric(a['total_tool_errors'])}</td><td>{metric(a['total_interruptions'])}</td>"
+                      f"<td>{str(pos * 100 // tot_sat) + '%' if a['satisfaction'] else '未知'}</td><td>{str(ach * 100 // tot_out) + '%' if a['outcomes'] else '未知'}</td></tr>")
     tool_table = (f'<h2 id="section-tools">工具概览</h2><table class="tool-table"><thead><tr>'
                   f"<th>工具</th><th>主力模型</th><th>推理深度</th><th>会话</th><th>时长</th><th>消息</th>"
                   f"<th>提交</th><th>代码行</th><th>报错</th><th>打断</th><th>满意度+</th><th>达成率</th>"
@@ -327,7 +423,7 @@ def main():
     # ---- 跨工具组合 ----
     cw = ins.get("cross_tool_workflows") or {}
     cw_html = ""
-    if multi_tool and (cw.get("observed_patterns") or cw.get("combination_suggestions")):
+    if multi_tool and agg.get("cross_tool_metrics_available", True) and (cw.get("observed_patterns") or cw.get("combination_suggestions")):
         intro = f'<p class="section-intro">{esc(cw.get("intro"))}</p>' if cw.get("intro") else ""
         obs = ""
         for o in cw.get("observed_patterns") or []:
@@ -374,12 +470,12 @@ def main():
         oh_html = f'<h2 id="section-horizon">未来可期</h2>{intro}<div class="horizon-section">{cards}</div>'
 
     # ---- 图表 ----
-    agent_sessions = {AGENT_BADGE.get(a, (a,))[0]: g2["total_sessions"] for a, g2 in by_agent.items()}
+    agent_sessions = {AGENT_BADGE.get(a, (a,))[0]: g2["total_sessions"] for a, g2 in by_agent.items() if g2["total_sessions"] is not None}
     codex_effort = (by_agent.get("codex") or {}).get("reasoning_effort") or {}
     internal = agg.get("internal_model_effort") or {}
-    root_mix = (f"根会话：混用模型 {c.get('sessions_with_mixed_models', 0)} 个；"
-                f"混用推理强度 {c.get('sessions_with_mixed_reasoning_effort', 0)} 个。")
-    internal_mix = (f"内部会话：{internal.get('total_sessions', 0)} 个；"
+    root_mix = (f"根会话：混用模型 {metric(c.get('sessions_with_mixed_models', 0))} 个；"
+                f"混用推理强度 {metric(c.get('sessions_with_mixed_reasoning_effort', 0))} 个。")
+    internal_mix = ("内部会话统计未知。" if evidence_mode else f"内部会话：{internal.get('total_sessions', 0)} 个；"
                     "其模型/强度单独统计，未混入根会话总览、成功率或分母。")
     internal_charts = []
     if internal.get("models"):
@@ -410,6 +506,10 @@ def main():
         ("你的响应耗时", rt_histogram(c.get("response_times") or [])),
         ("使用时段", tod_chart(c["message_hours"])),
     ]
+    if evidence_mode:
+        charts = [item for item in charts if item and 'class="empty"' not in item[1]]
+        if not any(c.get(key) for key in ("models", "reasoning_effort")) and not any(g.get("models") or g.get("reasoning_effort") for g in by_agent.values()) and not internal:
+            model_effort_html = ""
     charts_html = "".join(f'<div class="chart-card"><div class="chart-title">{esc(t)}</div>{b}</div>'
                           for tb in charts if tb for t, b in [tb])
 
@@ -420,12 +520,30 @@ def main():
         det = f'<div class="fun-detail">{esc(fe.get("detail"))}</div>' if fe.get("detail") else ""
         fe_html = f'<div class="fun-ending"><div class="fun-headline">“{esc(fe["headline"])}”</div>{det}</div>'
 
-    toc = [("#section-tools", "工具总览") if multi_tool else None, ("#section-work", "项目领域"),
-           ("#section-usage", "协作风格"), ("#section-toolcmp", "分工对比") if multi_tool else None,
-           ("#section-wins", "亮点"), ("#section-friction", "摩擦"),
-           ("#section-features", "建议"), ("#section-crosstool", "跨工具组合") if multi_tool else None,
-           ("#section-horizon", "未来"), ("#section-model-effort", "模型口径"), ("#section-charts", "图表")]
-    toc_html = "".join(f'<a href="{a}">{t}</a>' for x in toc if x for a, t in [x])
+    knowledge_html, infrastructure_html, sources_html = evidence_sections(ins, agg.get("sources") or [])
+    if method_html:
+        if sources_html:
+            sources_html = sources_html.replace('来源与核验入口</h2>', '来源与方法</h2>' + method_html, 1)
+        else:
+            sources_html = '<h2 id="section-sources">来源与方法</h2>' + method_html
+    chart_section_html = ('<h2 id="section-charts">数据全景</h2><div class="charts-row">'
+                          + charts_html + matrix_html + '</div>') if charts_html or matrix_html else ''
+
+    section_nodes = [("section-tools", "工具总览", tool_table), ("section-work", "项目领域", areas_html),
+                     ("section-usage", "协作风格", style_html), ("section-toolcmp", "分工对比", tc_html),
+                     ("section-wins", "亮点", ww_html), ("section-friction", "摩擦", fr_html),
+                     ("section-features", "建议", sg_html if sg.get("config_additions") else ""),
+                     ("section-patterns", "用法进阶", sg_html if sg.get("usage_patterns") else ""),
+                     ("section-crosstool", "跨工具组合", cw_html), ("section-horizon", "未来", oh_html),
+                     ("section-knowledge", "历史知识", knowledge_html),
+                     ("section-infrastructure", "基建效果", infrastructure_html),
+                     ("section-model-effort", "模型口径", model_effort_html),
+                     ("section-charts", "图表", chart_section_html), ("section-sources", "来源", sources_html)]
+    toc_html = ''.join(f'<a href="#{anchor}">{title}</a>' for anchor, title, node in section_nodes if node)
+    # Glance links may target an optional section absent from a sparse evidence bundle.
+    rendered_anchors = {anchor for anchor, _, node in section_nodes if node}
+    glance_html = re.sub(r' <a href="#([^"]+)" class="see-more">详见 →</a>',
+                         lambda m: m.group(0) if m.group(1) in rendered_anchors else '', glance_html)
 
     css = """
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -550,6 +668,7 @@ def main():
 <div class="subtitle">{esc(agents_label)} · {esc(window_label)}（{esc(c['date_range'].get('start'))} 至 {esc(c['date_range'].get('end'))}）{esc(internal_note)} · 生成于 {esc((agg.get('generated_at') or date.today().isoformat())[:10])}</div>
 <div class="nav-toc">{toc_html}</div>
 <div class="stats-row">{stats_html}</div>
+{scope_html}
 {glance_html}
 {tool_table}
 {areas_html}
@@ -560,10 +679,12 @@ def main():
 {sg_html}
 {cw_html}
 {oh_html}
+{knowledge_html}
+{infrastructure_html}
 {model_effort_html}
-<h2 id="section-charts">数据全景</h2>
-<div class="charts-row">{charts_html}{matrix_html}</div>
+{chart_section_html}
 {fe_html}
+{sources_html}
 <script>{js}</script>
 </div></body></html>"""
 

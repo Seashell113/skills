@@ -1,6 +1,6 @@
 ---
 name: insights-aggregator
-description: 跨工具 AI 编程助手使用洞察分析。扫描 Claude Code 与 Codex 的本地会话记录，计算使用统计、提取语义 facets、生成跨工具对比与组合使用分析，输出自包含 HTML 报告。当用户要求"分析我的 agent 使用情况"、"生成 insights 报告"、"跨工具使用分析"、"/insights"、"claude code 和 codex 用得怎么样"时使用。
+description: 跨工具 AI 编程助手使用洞察分析。扫描 Claude Code 与 Codex 的本地会话记录，计算使用统计、提取语义 facets、生成跨工具对比与组合使用分析，可选提取历史业务/项目/技术/组织经验并评估 Agent、subagent、Skill、模型与工具的实际效果，输出自包含 HTML 报告。当用户要求"分析我的 agent 使用情况"、"生成 insights 报告"、"跨工具使用分析"、"/insights"、"claude code 和 codex 用得怎么样"、"从历史会话提取经验"、"分析 Agent 基建效果"时使用。
 ---
 
 # insights-aggregator
@@ -14,7 +14,8 @@ scripts/collect.py        扫描+解析双工具会话 → SessionMeta 缓存 + 
 scripts/aggregate.py      聚合 + 跨工具关联（并行/接力/项目矩阵）→ aggregated.json + insight-context.md
 scripts/render.py         渲染自包含 HTML 报告
 prompts/facet-extraction.md    facet 提取子 agent 提示词
-prompts/insight-sections.md    9 个洞察 section + at_a_glance 提示词
+prompts/insight-sections.md    原 9 个洞察 section + 2 个可选 section + at_a_glance 提示词
+reference/evidence-bundle.md   已准备证据复用协议（不重跑采集/facet）
 reference/claude-insights-spec.md   Claude /insights 源码逻辑完整规范（背景知识，执行时不必读）
 reference/codex-session-schema.md   Codex rollout JSONL 格式与字段映射表
 ```
@@ -26,6 +27,10 @@ reference/codex-session-schema.md   Codex rollout JSONL 格式与字段映射表
 ### Step 0 — 与用户确认范围（开跑前）
 
 默认分析**最近一个月**（`--days 30`）、facet 提取上限 **50 条**。开跑前向用户确认一句，并说明：调大窗口或分析数（如全历史、`--max-facets 200`）意味着更多并行子 agent 调用、更高的 LLM 开销和耗时。用户没有特殊要求就用默认值直接开始。
+
+### 已有证据时：跳过重复抽取
+
+用户已有选样任务材料、核验片段和统计时，先检查它们能否构成 [evidence bundle](reference/evidence-bundle.md)。通过 `aggregate.py --evidence-bundle /path/bundle.json --home /private/path/run` 进入 Step 4 / 5；无需重跑 collect 或昂贵 facet。使用独立 home，避免混入旧 section。范围和冻结时间以 bundle 为准，未知指标保留未知，直接阅读数与 facet 数分开记录。
 
 ### Step 1 — 采集（脚本，无 LLM）
 
@@ -70,7 +75,8 @@ python3 {skill_dir}/scripts/aggregate.py [--days 30] [--as-of 2026-08-27T13:56:1
 按 `prompts/insight-sections.md`：
 
 1. 9 个 section 并行派发（单工具数据则跳过 `tool_comparison`、`cross_tool_workflows`，剩 7 个）。每个子 agent 读 `work/insight-context.md`，写 `work/insights/{section}.json`。此层用**较强的模型**（叙事质量敏感）。
-2. 全部完成后，串行生成 `at_a_glance`（上下文 = insight-context.md + 各 section 产出要点）。
+2. 用户要求历史知识提取/基建效果分析，或本轮复盘材料确有可复用经验或基建效果问题时，按同一提示词追加 `knowledge_findings` 与 `infrastructure_effectiveness` 两个可选 section；保留原 7/9 个使用洞察。读取 Skill/规则、实际执行、结果与采纳状态分别记录，证据不足写未知。facet 的头尾摘要、短 prefix 不能代表完整会话；关键结论缺链时按已授权 session_id / locator 有界下钻相关原文，记录实际读取范围与未覆盖部分，不默认扩大全历史抽取。
+3. 全部完成后，串行生成 `at_a_glance`（上下文 = insight-context.md + 各 section 产出要点）。
 
 ### Step 5 — 渲染与交付
 

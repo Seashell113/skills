@@ -19,6 +19,7 @@
 - "分析我的 agent 使用情况" / "claude code 和 codex 用得怎么样"
 - 想知道两个工具的分工模式、任务-模型匹配度、使用摩擦点
 - 想要一份可留存的阶段性使用报告
+- 从历史会话提取业务、项目、技术和组织经验，判断 Agent/subagent/Skill/模型/工具是否产生实际效果
 
 ## 前置条件
 
@@ -41,6 +42,14 @@ npx skills add https://github.com/Seashell113/skills.git -g --skill insights-agg
 
 默认分析最近 30 天、facet 提取上限 50 条会话；调大窗口意味着更多并行 LLM 调用和耗时。
 
+## 复用证据与可选扩展
+
+保留原 7/9 个使用洞察 section；用户明确要求，或本轮材料确有可复用经验/基建效果问题时，追加历史知识与基建效果两项分析。结论引用可定位来源，采纳状态单独记录；没有结果、替代成本或对照证据时写未知。
+
+已有任务材料时用 `aggregate.py --evidence-bundle /private/path/bundle.json --home /private/path/run` 进入原聚合与渲染流程，不重跑采集和 facet。直接阅读任务与完成 facet 分开计数，未知时长、提交数、满意度与模型统计不补零。协议与示例见 [evidence bundle](reference/evidence-bundle.md)。
+
+回归：`PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s skills/insights-aggregator/tests`（在仓库根目录执行）。
+
 ## 隐私说明
 
 - 原始会话文件**只读不动**；所有缓存与报告落在本地 `~/.agent-insights/`（权限 0600）
@@ -54,6 +63,7 @@ npx skills add https://github.com/Seashell113/skills.git -g --skill insights-agg
 | `scripts/collect.py` | 扫描 + 解析双工具会话，维护 SessionMeta 缓存 |
 | `scripts/codex_segments.py` | 按冻结字节边界区分 Codex owned live、导入历史与 orphan |
 | `scripts/aggregate.py` | 聚合统计与跨工具关联 |
+| `scripts/evidence_bundle.py` | 复用已准备证据并保留未知指标与选样口径 |
 | `scripts/render.py` | 渲染自包含 HTML 报告 |
 | `tests/test_codex_segments.py` | Codex fork、subagent、无效行与快照回归夹具 |
 | `tests/test_codex_user_messages.py` | 新旧 UserMessage、去重、轮次和缓存升级的合成回归 |

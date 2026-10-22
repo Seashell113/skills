@@ -188,3 +188,29 @@ observed_patterns 2-3 条、combination_suggestions 2-4 条，按数据伸缩。
   "quick_wins": "...",
   "ambitious_workflows": "..."
 }
+
+## 可选 10. knowledge_findings（历史知识与经验）
+
+当用户要求从历史会话提取业务、项目、技术或组织经验，或本轮复盘材料确有可复用经验时启用；原有 7/9 个使用洞察 section 继续保留。读取 context 中来源与候选，按需要对已授权 locator 做有限原文核验。
+
+输出 `work/insights/knowledge_findings.json`：
+
+```json
+{"intro":"覆盖范围与限制","findings":[{"title":"经验标题","finding":"可复用的小结论","evidence":["source_id"],"reuse":"适用场景","status":"候选/已采纳/已验证等实际状态","limits":"来源与适用边界"}]}
+```
+
+优先保留能在后续工作中复用的经验，区分事实、判断和建议。证据不足保留候选，不把用户要求当成已完成、不把报告建议当作已采纳规则。无支持材料时给空 findings 并在 intro 说明缺口。
+
+## 可选 11. infrastructure_effectiveness（Agent 与基建效果）
+
+当用户要求判断 Agent、subagent、Skill、模型和工具是否有效，或本轮复盘材料确有基建效果问题时启用。可分析单工具内部基建；只有单一工具时仍跳过原跨工具对比 section。
+
+输出 `work/insights/infrastructure_effectiveness.json`：
+
+```json
+{"intro":"分析范围与限制","assessments":[{"name":"具体机制/工具","purpose":"使用目的","observed_result":"实际使用及观察到的结果","alternative_and_cost":"替代方案与成本，证据不足写未知","decision":"保留/调整/待验证的建议","next_check":"下一次如何验证","evidence":["source_id"],"limits":"归因与样本限制"}]}
+```
+
+沿“实际使用 → 结果 → 替代与成本 → 保留/调整”分析，不按出现频率为基建辩护。读取 Skill/规则只证明加载，不证明执行和收益；模型配置不证明阶段效果；subagent 多不等于效率高。列出可观察的节省、返工或阻塞，区分实测、估计、建议与未知。没有同条件对照或实际费用记录，不编价格、节省时长、满意度、模型收益或因果结论。
+
+这两个可选 section 可与原 section 并行生成；at_a_glance 在它们完成后综合要点。所有 evidence 必须引用 context 中存在的 source id；缺关键依据时按已给定 locator 有限下钻并补来源，不能扩大为全历史重提。selection 的选样、直接阅读与 facet 数量必须如实说明，不能把样本结论外推到全量。
