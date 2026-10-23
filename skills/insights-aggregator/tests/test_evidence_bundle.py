@@ -123,12 +123,16 @@ class EvidenceBundleTests(unittest.TestCase):
             bundle["display_timezone"] = {"name": "Asia/Shanghai"}
             group = {"total_sessions": 12, "total_messages": 40, "days_active": 7}
             bundle["metrics"] = {"combined": group, "by_agent": {"codex": group}}
+            bundle["internal_sessions_excluded"] = 5
             agg = load_bundle(self.write_bundle(root, bundle), aggregate_group([], {}), parse_iso)
             with contextlib.redirect_stdout(io.StringIO()):
                 write_outputs(tmp, agg, [])
             context = (root / "work/insight-context.md").read_text()
             self.assertNotIn("## Cross-tool signals", context)
             self.assertNotIn("Claude Code", context)
+            self.assertIn("已排除 5 个**内部会话**", context)
+            self.assertNotIn("子代理 0 个", context)
+            self.assertNotIn("自动评审 0 个", context)
             ins = root / "work/insights"
             ins.mkdir()
             for name, value in {

@@ -376,9 +376,12 @@ def build_context(agg, facets):
     n_internal = agg.get("internal_sessions_excluded") or 0
     if n_internal:
         b = agg.get("internal_breakdown") or {}
-        lines.append(f"- 已排除 {n_internal} 个**内部会话**（spawn_agent 子代理 {b.get('subagent', 0)} 个、"
-                     f"自动评审 {b.get('auto_review', 0)} 个）：它们不是用户发起的交互，"
-                     "根会话总览、成功率和分母均不含它们；内部模型/强度分布只在专题中单列。")
+        parts = [f"{label} {b[key]} 个" for key, label in
+                 (("subagent", "spawn_agent 子代理"), ("auto_review", "自动评审"), ("guardian_review", "Guardian 审阅"))
+                 if key in b]
+        detail = "（" + "、".join(parts) + "）" if parts else ""
+        lines.append(f"- 已排除 {n_internal} 个**内部会话**{detail}：这些内部执行记录单列，"
+                     "根会话总览、成功率和分母均不含它们；内部模型/强度分布只在专题中呈现。")
     internal = agg.get("internal_model_effort") or {}
     if internal.get("total_sessions"):
         lines.append("- 内部会话模型/强度（不计入根会话）："
