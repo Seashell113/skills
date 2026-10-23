@@ -18,7 +18,10 @@ import sys
 from datetime import datetime
 from urllib.parse import quote
 
-from collect import SCHEMA_VERSION, analysis_window, facet_matches_window, parse_ts
+from zoneinfo import ZoneInfo
+
+from collect import (SCHEMA_VERSION, analysis_window, display_timezone_info,
+                     facet_matches_window, parse_ts, tool_metric_coverage)
 from evidence_bundle import load_bundle
 
 HANDOFF_WINDOW_MIN = 45      # 同项目跨工具接力窗口
@@ -83,6 +86,7 @@ def aggregate_group(metas, facets_by_key):
         "total_messages": 0, "total_duration_hours": 0.0,
         "total_input_tokens": 0, "total_output_tokens": 0,
         "tool_counts": {}, "tool_category_counts": {}, "languages": {},
+        "tool_wrapped_calls": 0,
         "git_commits": 0, "git_pushes": 0, "projects": {},
         "goal_categories": {}, "outcomes": {}, "satisfaction": {},
         "helpfulness": {}, "session_types": {}, "friction": {}, "success": {},
@@ -101,8 +105,16 @@ def aggregate_group(metas, facets_by_key):
     }
     dates, rts = [], []
     for m in metas:
-        dates.extend(m.get("user_message_timestamps") or [m["start_time"]])
+        local_dates = m.get("message_dates")
+        if not local_dates:
+            zone_name = (m.get("display_timezone") or {}).get("name", "local")
+            zone = ZoneInfo(zone_name) if zone_name != "local" else None
+            local_dates = [stamp.astimezone(zone).date().isoformat()
+                           for stamp in (parse_ts(value) for value in
+                                         (m.get("user_message_timestamps") or [m["start_time"]])) if stamp]
+        dates.extend(local_dates)
         r["total_messages"] += m["user_message_count"]
+        r["tool_wrapped_calls"] += m.get("tool_wrapped_calls", 0)
         r["total_duration_hours"] += m.get("active_minutes", m["duration_minutes"]) / 60
         r["total_input_tokens"] += m["input_tokens"]
         r["total_output_tokens"] += m["output_tokens"]
@@ -160,7 +172,7 @@ def aggregate_group(metas, facets_by_key):
             sm, se = m.get("models") or {}, m.get("reasoning_effort") or {}
             r["session_summaries"].append({
                 "agent": m["agent"], "id": m["session_id"][:8],
-                "date": m["start_time"][:10],
+                "date": local_dates[0] if local_dates else m["start_time"][:10],
                 "model": max(sm, key=sm.get) if sm else None,
                 "effort": max(se, key=se.get) if se else None,
                 "active_minutes": m.get("active_minutes"),
@@ -180,6 +192,7 @@ def aggregate_group(metas, facets_by_key):
     r["days_active"] = len(days)
     r["messages_per_day"] = round(r["total_messages"] / len(days), 1) if days else 0
     r["total_duration_hours"] = round(r["total_duration_hours"], 1)
+    r["metric_coverage"] = tool_metric_coverage(r["tool_wrapped_calls"])
     return r
 
 
@@ -418,6 +431,7 @@ def main():
     ap.add_argument("--home", default=os.path.expanduser("~/.agent-insights"))
     ap.add_argument("--days", type=int, default=30, help="报告窗口：最近 N 天（0=全历史），统计与语义同窗")
     ap.add_argument("--since", help="活动窗口起点 ISO 8601（开区间），优先于 --days")
+    ap.add_argument("--timezone", help="日期/小时显示时区；默认沿用 collect 时区或宿主本地时区")
     ap.add_argument("--as-of", help="冻结窗口截止时间（ISO 8601；默认当前 UTC 时间）")
     ap.add_argument("--evidence-bundle", help="复用已准备证据与已知统计；跳过会话缓存采集/聚合")
     args = ap.parse_args()
@@ -447,16 +461,31 @@ def main():
     except ValueError as exc:
         ap.error(str(exc))
     as_of = parse_ts(window["as_of"])
+    try:
+        display_timezone = display_timezone_info(
+            args.timezone or ((collected or {}).get("display_timezone") or {}).get("name"), as_of)
+    except ValueError as exc:
+        ap.error(str(exc))
     # Preserve explicitly supplied formatting in generated_at for existing consumers.
     generated_at = (parse_ts(args.as_of).isoformat() if args.as_of else as_of.isoformat())
     cutoff_iso = window["since"] or ""
     metas = []
     rejected_window_metas = 0
+    excluded_collection_metas = 0
+    rejected_timezone_metas = 0
+    collected_keys = (collected or {}).get("included_meta_keys")
+    allowed_keys = {tuple(key) for key in collected_keys} if collected_keys is not None else None
     for agent in ("claude-code", "codex"):
         for meta in load_dir(os.path.join(home, "cache/meta", agent)):
+            if allowed_keys is not None and (meta.get("agent"), meta.get("session_id")) not in allowed_keys:
+                excluded_collection_metas += 1
+                continue
+            if meta.get("display_timezone") is not None and meta["display_timezone"] != display_timezone:
+                rejected_timezone_metas += 1
+                continue
             stamp = meta.get("analysis_window")
             if stamp is not None:
-                valid = stamp == window
+                valid = stamp == window and meta.get("schema_version") == SCHEMA_VERSION
             else:
                 # Old lifecycle caches are safe only when wholly inside scope.
                 start = parse_ts(meta.get("start_time"))
@@ -514,6 +543,9 @@ def main():
         "stale_codex_facets_ignored": stale_codex_facets_ignored,
         "stale_window_facets_ignored": sum((m["agent"], m["session_id"]) in stale_window_facet_keys for m in metas),
         "mismatched_window_metas_ignored": rejected_window_metas,
+        "out_of_collection_metas_ignored": excluded_collection_metas,
+        "mismatched_timezone_metas_ignored": rejected_timezone_metas,
+        "display_timezone": display_timezone,
         "window": {"days": args.days, "cutoff": cutoff_iso[:10] if cutoff_iso else None,
                    "as_of": window["as_of"], "since": window["since"],
                    "bounds": "(since, as_of]"},
@@ -589,6 +621,8 @@ def write_outputs(home, agg, used_facets):
         "stale_codex_facets_ignored": agg.get("stale_codex_facets_ignored"),
         "stale_window_facets_ignored": agg.get("stale_window_facets_ignored"),
         "mismatched_window_metas_ignored": agg.get("mismatched_window_metas_ignored"),
+        "out_of_collection_metas_ignored": agg.get("out_of_collection_metas_ignored"),
+        "mismatched_timezone_metas_ignored": agg.get("mismatched_timezone_metas_ignored"),
         "cross_tool_overlap_events": agg["cross_tool"]["overlap"].get("cross_tool_overlap_events"),
         "handoff_direction_counts": agg["cross_tool"]["handoffs"]["direction_counts"],
         "aggregated": out, "insight_context": ctx_path,

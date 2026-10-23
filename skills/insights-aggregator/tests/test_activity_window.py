@@ -200,6 +200,98 @@ class ActivityWindowTests(unittest.TestCase):
         self.assertEqual(aggregated['internal_sessions_excluded'], 1)
         self.assertEqual(aggregated['internal_model_effort']['models'], {'worker-model': 1})
 
+    def test_orchestration_is_counted_without_guessing_nested_javascript(self):
+        rows = [row('session_meta', {'id': A}, SINCE),
+                user('synthetic task', '2026-10-15T01:00:00Z'),
+                context('test-model', '2026-10-15T01:00:00Z')]
+        javascript = 'await tools.exec_command({cmd: "git commit -m synthetic"}); await tools.apply_patch("*** Add File: nested.py\\n+print(1)")'
+        for index, name in enumerate(('functions.exec', 'exec', 'functions__exec', 'functions_exec')):
+            rows.append(row('response_item', {'type': 'custom_tool_call', 'name': name,
+                                              'input': javascript, 'call_id': f'wrapper-{index}'}, AS_OF))
+        # A direct call still contributes observed metrics independently.
+        rows.append(row('response_item', {'type': 'function_call', 'name': 'exec_command',
+                                          'arguments': json.dumps({'cmd': 'git commit -m direct'}),
+                                          'call_id': 'direct'}, AS_OF))
+        self.path.write_bytes(data(rows))
+        self.collect()
+        meta = self.meta()
+        self.assertEqual(meta['tool_category_counts'], {'orchestration': 4, 'shell': 1})
+        self.assertEqual(meta['tool_wrapped_calls'], 4)
+        self.assertEqual(meta['git_commits'], 1)
+        self.assertEqual(meta['lines_added'], 0)
+        self.assertEqual(meta['languages'], {})
+        self.assertEqual(meta['user_message_count'], 1)
+        self.assertEqual(meta['models'], {'test-model': 1})
+        self.assertTrue(meta['metric_coverage']['has_unparsed_wrapped_calls'])
+        self.assertEqual(meta['metric_coverage']['tool_counts'], 'top_level_records')
+        self.assertEqual(meta['metric_coverage']['languages'], 'direct_calls_only')
+        group = self.aggregate()['combined']
+        self.assertEqual(group['tool_wrapped_calls'], 4)
+        self.assertEqual(group['metric_coverage'], meta['metric_coverage'])
+        # Schema 14 invalidates the prior cached run even with unchanged sources.
+        meta['schema_version'] = 13
+        del meta['tool_wrapped_calls']
+        (self.home / f'cache/meta/codex/{A}.json').write_text(json.dumps(meta))
+        self.assertEqual(self.collect()['parsed_now'], 1)
+        self.assertEqual(self.meta()['schema_version'], SCHEMA_VERSION)
+        self.assertEqual(self.meta()['tool_wrapped_calls'], 4)
+
+    def test_date_hour_and_cache_use_one_explicit_display_timezone(self):
+        self.path.write_bytes(data([row('session_meta', {'id': A}, SINCE),
+                                   user('before UTC midnight', '2026-10-15T23:50:00Z'),
+                                   user('at UTC midnight', AS_OF, 'second')]))
+        self.collect(extra=['--timezone', 'Asia/Shanghai'])
+        meta = self.meta()
+        self.assertEqual(meta['message_hours'], [7, 8])
+        self.assertEqual(meta['message_dates'], ['2026-10-16', '2026-10-16'])
+        self.assertEqual(meta['display_timezone']['name'], 'Asia/Shanghai')
+        self.assertEqual(meta['display_timezone']['utc_offset'], '+0800')
+        aggregate = self.aggregate()
+        self.assertEqual(aggregate['display_timezone'], meta['display_timezone'])
+        self.assertEqual(aggregate['combined']['days_active'], 1)
+        self.assertEqual(aggregate['combined']['date_range'], {'start': '2026-10-16', 'end': '2026-10-16'})
+        self.assertEqual(aggregate['combined']['session_summaries'][0]['date'], '2026-10-16')
+        mismatch = self.aggregate(extra=['--timezone', 'UTC'])
+        self.assertEqual(mismatch['combined']['total_sessions'], 0)
+        self.assertEqual(mismatch['mismatched_timezone_metas_ignored'], 1)
+        self.assertEqual(self.collect(extra=['--timezone', 'UTC'])['parsed_now'], 1)
+        self.assertEqual(self.meta()['message_hours'], [23, 0])
+        self.assertEqual(self.aggregate()['combined']['days_active'], 2)
+        self.assertEqual(self.collect(extra=['--timezone', 'UTC'])['from_cache'], 1)
+
+    def test_same_window_manifest_replacement_and_maxload_bind_collection(self):
+        second_path = self.path.with_name(f'rollout-synthetic-{B}.jsonl')
+        second_path.write_bytes(data([row('session_meta', {'id': B}, SINCE),
+                                      user('second synthetic task', AS_OF)]))
+        manifest = self.root / 'manifest.json'
+        def freeze(paths, snapshot_id):
+            manifest.write_text(json.dumps({'snapshot_id': snapshot_id, 'files': [{
+                'path': str(path), 'session_id': A if path == self.path else B,
+                'byte_length': path.stat().st_size, 'mtime_ns': path.stat().st_mtime_ns,
+                'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in paths]}))
+        flags = ['--codex-snapshot-manifest', str(manifest)]
+        freeze([self.path, second_path], 'synthetic-first')
+        self.collect(extra=flags)
+        self.assertEqual(self.aggregate()['combined']['total_sessions'], 2)
+        freeze([second_path], 'synthetic-second')
+        summary = self.collect(extra=flags)
+        self.assertEqual(summary['included_meta_keys'], [['codex', B]])
+        aggregate = self.aggregate()
+        self.assertEqual(aggregate['combined']['total_sessions'], 1)
+        self.assertEqual(aggregate['out_of_collection_metas_ignored'], 1)
+        self.assertTrue((self.home / f'cache/meta/codex/{A}.json').exists())
+        # Same-window stale entries are not revived when max-load prevents parsing.
+        freeze([second_path], 'synthetic-third')
+        summary = self.collect(extra=[*flags, '--max-load', '0'])
+        self.assertEqual(summary['included_meta_keys'], [])
+        self.assertEqual(summary['note_remaining_uncached'], 1)
+        self.assertEqual(self.aggregate()['combined']['total_sessions'], 0)
+        self.collect(extra=flags)
+        summary = self.collect(extra=[*flags, '--max-load', '0'])
+        self.assertEqual(summary['included_meta_keys'], [['codex', B]])
+        self.assertEqual(summary['from_cache'], 1)
+        self.assertEqual(self.aggregate()['combined']['total_sessions'], 1)
+
     @unittest.skipUnless(ZSTD, 'zstd executable unavailable')
     def test_archived_zstd_and_physical_frozen_prefix_hash(self):
         compressed = subprocess.run([ZSTD, '-q', '-c'], input=data(fixture_rows()),
