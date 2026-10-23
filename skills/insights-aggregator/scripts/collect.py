@@ -32,11 +32,12 @@ import os
 import re
 import sys
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from codex_segments import read_owned_codex_stream
 
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 INTERRUPT_MARKER = "[Request interrupted by user"
 # Claude Code 把 /command 的本地执行记录也写成 user 消息，不是人类输入
 CLAUDE_NOISE_RE = re.compile(
@@ -63,7 +64,9 @@ CLAUDE_TOOL_CATEGORY = {
     "TodoWrite": "plan", "TaskCreate": "plan", "TaskUpdate": "plan", "ExitPlanMode": "plan",
     "Skill": "skill",
 }
+ORCHESTRATION_TOOLS = {"functions.exec", "exec", "functions__exec", "functions_exec"}
 CODEX_TOOL_CATEGORY = {
+    **{name: "orchestration" for name in ORCHESTRATION_TOOLS},
     "exec_command": "shell", "shell": "shell", "local_shell": "shell",
     "write_stdin": "shell", "read_thread_terminal": "shell",
     "apply_patch": "edit", "view_image": "read",
@@ -84,6 +87,29 @@ ERROR_RULES = [  # (子串列表, 分类) — 与源码一致，顺序敏感
     (["exceeds maximum", "too large"], "File Too Large"),
     (["file not found", "does not exist"], "File Not Found"),
 ]
+
+
+def tool_metric_coverage(wrapped_calls):
+    """Top-level records cannot establish what happened inside orchestration code."""
+    return {
+        "tool_counts": "top_level_records",
+        "tool_category_counts": "top_level_records",
+        "git_commits": "direct_calls_only",
+        "git_pushes": "direct_calls_only",
+        "lines_added": "direct_calls_only",
+        "lines_removed": "direct_calls_only",
+        "files_modified": "direct_calls_only",
+        "languages": "direct_calls_only",
+        "tool_errors": "direct_results_only",
+        "tool_error_categories": "direct_results_only",
+        "uses_task_agent": "direct_calls_only",
+        "uses_mcp": "direct_calls_only",
+        "uses_web_search": "direct_calls_only",
+        "uses_web_fetch": "direct_calls_only",
+        "nested_tool_calls": "not_parsed",
+        "has_unparsed_wrapped_calls": wrapped_calls > 0,
+        "note": "提交、补丁行数、语言和工具错误仅识别直接记录；编排内嵌套调用未解析，不能代表完整工具活动。",
+    }
 
 
 def classify_error(text):
@@ -111,6 +137,17 @@ def parse_ts(s):
 
 def iso(dt):
     return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def display_timezone_info(name=None, at=None):
+    """Date/hour presentation timezone; event inclusion remains UTC-based."""
+    name = name or "local"
+    try:
+        zone = ZoneInfo(name) if name != "local" else None
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValueError(f"unknown --timezone: {name}") from exc
+    local = (at or datetime.now(timezone.utc)).astimezone(zone)
+    return {"name": name, "label": local.tzname(), "utc_offset": local.strftime("%z")}
 
 
 def analysis_window(days=30, since=None, as_of=None):
@@ -617,16 +654,19 @@ def codex_parse(path, session_id, byte_limit=None, expected_sha256=None):
 # SessionMeta 计算（与 /insights 源码 extractToolStats / logToSessionMeta 对齐）
 # ============================================================================
 
-def compute_meta(s: ParsedSession, source_info):
+def compute_meta(s: ParsedSession, source_info, display_timezone=None):
     tool_counts, languages, error_cats = {}, {}, {}
     category_counts = {}
     git_commits = git_pushes = tokens_in = tokens_out = 0
     interruptions = tool_errors = 0
     lines_added = lines_removed = 0
     files_modified = set()
-    response_times, message_hours, user_ts = [], [], []
+    response_times, message_hours, user_ts, message_dates = [], [], [], []
+    display_timezone = display_timezone or display_timezone_info(at=s.end)
+    zone_name = display_timezone["name"]
+    display_zone = ZoneInfo(zone_name) if zone_name != "local" else None
     uses = {"task_agent": False, "mcp": False, "web_search": False, "web_fetch": False}
-    user_count = assistant_count = 0
+    user_count = assistant_count = tool_wrapped_calls = 0
     models, efforts = {}, {}
     thinking_turns = thinking_total = 0
     auto_review_turns = 0
@@ -649,6 +689,12 @@ def compute_meta(s: ParsedSession, source_info):
                 last_assistant_ts = ts
             name = ev["tool"]
             tool_counts[name] = tool_counts.get(name, 0) + 1
+            if s.agent == "codex" and name in ORCHESTRATION_TOOLS:
+                tool_wrapped_calls += 1
+                category_counts["orchestration"] = category_counts.get("orchestration", 0) + 1
+                # Do not infer shell/patch work from JavaScript strings or wrapper
+                # arguments. The wrapper is the only directly observed tool here.
+                continue
             cat = "mcp" if name.startswith("mcp__") else cat_map.get(name, "other")
             category_counts[cat] = category_counts.get(cat, 0) + 1
             if name in ("Task", "Agent", "spawn_agent"):
@@ -727,8 +773,9 @@ def compute_meta(s: ParsedSession, source_info):
             if not first_prompt:
                 first_prompt = ev["text"].strip()[:200]
             if ts:
-                local = ts.astimezone()
+                local = ts.astimezone(display_zone)
                 message_hours.append(local.hour)
+                message_dates.append(local.date().isoformat())
                 user_ts.append(iso(ts))
                 if last_assistant_ts:
                     rt = (ts - last_assistant_ts).total_seconds()
@@ -764,6 +811,8 @@ def compute_meta(s: ParsedSession, source_info):
         "assistant_message_count": assistant_count,
         "tool_counts": tool_counts,
         "tool_category_counts": category_counts,
+        "tool_wrapped_calls": tool_wrapped_calls,
+        "metric_coverage": tool_metric_coverage(tool_wrapped_calls),
         "languages": languages,
         "git_commits": git_commits,
         "git_pushes": git_pushes,
@@ -784,6 +833,8 @@ def compute_meta(s: ParsedSession, source_info):
         "lines_removed": lines_removed,
         "files_modified": len(files_modified),
         "message_hours": message_hours,
+        "message_dates": message_dates,
+        "display_timezone": display_timezone,
         "user_message_timestamps": user_ts,
         "models": models,                    # Claude assistant 消息 / Codex 去重 native turn 配置记录
         "reasoning_effort": efforts,         # 仅 Codex：按 turn_id 去重的 native turn 配置记录
@@ -836,6 +887,7 @@ def main():
     ap.add_argument("--days", type=int, default=30, help="活动窗口：最近 N 天（0=不限），--since 优先")
     ap.add_argument("--since", help="活动窗口起点 ISO 8601（开区间）")
     ap.add_argument("--as-of", help="活动窗口终点 ISO 8601（闭区间；默认当前 UTC）")
+    ap.add_argument("--timezone", help="日期和小时显示时区，如 Asia/Shanghai；默认宿主本地时区")
     ap.add_argument("--max-load", type=int, default=200, help="单次最多解析的未缓存会话数")
     ap.add_argument("--max-facets", type=int, default=50, help="窗口内最多提取的 facet 数")
     ap.add_argument(
@@ -846,6 +898,7 @@ def main():
 
     try:
         window = analysis_window(args.days, args.since, args.as_of)
+        display_timezone = display_timezone_info(args.timezone, parse_ts(window["as_of"]))
     except ValueError as exc:
         ap.error(str(exc))
 
@@ -872,6 +925,7 @@ def main():
                 with open(meta_path, encoding="utf-8") as fh:
                     cached = json.load(fh)
                 if (cached.get("analysis_window") != window
+                        or cached.get("display_timezone") != display_timezone
                         or cached.get("schema_version") != SCHEMA_VERSION
                         or cached.get("src_mtime") != info["mtime"]
                         or cached.get("src_mtime_ns") != info.get("mtime_ns")
@@ -925,7 +979,7 @@ def main():
         covers_session = all((window_start is None or event["ts"] > window_start)
                              and event["ts"] <= window_end for event in s.events if event.get("ts"))
         s = project_window(s, window)
-        meta = compute_meta(s, info)
+        meta = compute_meta(s, info, display_timezone)
         meta.update(analysis_window=window, source_start_time=source_start,
                     source_end_time=source_end, window_covers_session=covers_session,
                     has_window_activity=bool(s.events))
@@ -1010,6 +1064,9 @@ def main():
         "home": home,
         "scanned_files": len(scanned),
         "metas_total": len(metas),
+        # Binding to this collection prevents retained files from earlier manifests
+        # or max-load skips leaking into an otherwise identical analysis window.
+        "included_meta_keys": [[m["agent"], m["session_id"]] for m in metas],
         "metas_by_agent": by_agent,
         "from_cache": skipped_cache,
         "parsed_now": loaded - failed,
@@ -1046,6 +1103,7 @@ def main():
         },
         "facet_window_days": args.days,
         "analysis_window": window,
+        "display_timezone": display_timezone,
         "root_sessions_in_window": sum(not m.get("is_internal") and m["user_message_count"] >= 1 for m in metas),
         "internal_sessions_excluded": internal_count,
         "substantive_total": len(substantive),
