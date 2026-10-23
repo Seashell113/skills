@@ -5,9 +5,11 @@
 执行方式：
 - 第一阶段：下列 9 个 section **并行**派发子 agent。每个子 agent 读取 `work/insight-context.md`，按对应提示词生成，并将纯 JSON 写入 `work/insights/{section_name}.json`。
 - 第二阶段（串行）：全部完成后，再按文末 `at_a_glance` 提示词生成总览（其上下文 = insight-context.md + 各 section 产出要点），写入 `work/insights/at_a_glance.json`。
-- 若数据中只有单一工具（`agents_present` 只有一个），跳过 `tool_comparison` 与 `cross_tool_workflows` 两个 section。
+- 以主控确定的本期分析范围为准。仅有零星残留记录的工具不强行分析；输入只保留本期分析工具，`agents_present` 只有一个时跳过 `tool_comparison`、`cross_tool_workflows` 和总览的工具分工。
 
 统计范围与语义读取范围可能不同：样本中的频率、任务类别、满意度不能外推到全部会话。保留原有分析章节和阅读节奏；独立知识盘点按 [盘点协议](../reference/knowledge-inventory.md) 输出，报告只选有启发且有据的条目，不承担穷举和入库管理。
+
+正文先给判断，再用具体事件说明它为什么成立、对下一次工作有什么用。成果写实际改善，摩擦说明原因和后果，基建分析说明已经解决什么及仍需验证什么；避免同一案例在各节反复得出相同结论。统计方法集中交代，影响某条结论的条件留在该条。已采用的机制不再当作新建议；建议写清下一次试做及观察结果，由主控沿用已有上下文承担执行责任，不把它改成要求用户重复声明的提示词。篇幅按信息价值决定，不凑条数、不用泛泛赞美替代判断。
 
 每个子 agent 的统一收尾要求（附加到每个提示词之后）：
 
@@ -99,7 +101,7 @@ config_additions 的重点：**优先选"Repeated user instructions to agents"�
 
 分析 per-agent 对比数据，描述该用户的两个编程 agent 实际上是如何被差异化使用的。
 
-重要背景——成本驱动的混用：用户同时用两个工具的常见原因是**成本控制**而非单纯能力偏好：Codex 走官方模型，Claude Code 常被接入更便宜的第三方/国产模型（kimi / deepseek / glm / qwen…）。先看 `models_by_records`——如果 Claude Code 出现这类模型名，就用这个视角解读分工（便宜可控的任务 → Claude Code + 国产模型；重活/复杂活 → 官方模型）。不要默认两个工具都跑高价模型。
+先依据用户说明、任务流向与结果解释分工。成本、环境和习惯都可能影响工具选择；模型名称不能单独证明成本动机、价格或任务难度。没有实质使用样本时不生成本节。
 
 Session summaries 的 [agent|model|effort|active_min] 仅支持人工查看配置分布。不要把档位与设计、执行、审查阶段或结果建立未经采集的连接，也不要因 active_min 较长就归因给 max/ultra。
 
@@ -132,7 +134,7 @@ Session summaries 的 [agent|model|effort|active_min] 仅支持人工查看配�
   ]
 }
 
-observed_patterns 2-3 条、combination_suggestions 2-4 条，按数据伸缩。如果跨工具事件很少，诚实说明，并把建议聚焦在"更有意识的组合是否值得"或"单工具专注也挺好"上。
+条数按证据伸缩。没有可支持的跨工具协作时简短说明，不为了填满章节推荐组合使用；本期只分析单工具时跳过本节。
 
 ## 8. on_the_horizon（未来可期）
 
@@ -146,7 +148,7 @@ observed_patterns 2-3 条、combination_suggestions 2-4 条，按数据伸缩。
   ]
 }
 
-给出 3 个机会。想得大胆些——自治工作流、并行 agent、对着测试迭代、跨工具编排。
+按证据给出值得探索的机会，区分未来方向与当前可执行的建议；不重复 suggestions，也不为凑数引入新平台或跨工具编排。
 
 ## 9. fun_ending（趣味结尾）
 
@@ -158,7 +160,7 @@ observed_patterns 2-3 条、combination_suggestions 2-4 条，按数据伸缩。
   "detail": "简短交代发生的时间/场景"
 }
 
-找真正有意思或好笑的内容。
+找真正有意思或好笑的内容。概括写成叙述；仅在有逐字来源时使用引号，避免把转述写成用户原话。
 
 ---
 
@@ -178,9 +180,9 @@ observed_patterns 2-3 条、combination_suggestions 2-4 条，按数据伸缩。
 
 4. **值得做的**——从建议中挑具体的功能，或一个真正有说服力的工作流技巧。避免"让 agent 行动前先确认""提前多打点上下文"这类没劲的建议。
 
-5. **未来规划**——未来 3-6 个月模型会强得多，该为什么做准备？现在看起来不可能的工作流，哪些会变得可能？
+5. **未来规划**——从本期已显现的能力与未解决问题出发，下一步有哪些值得试做的工作方式？不把未来模型进步当成已知前提。
 
-每段 2-3 句、不要太长，不要让用户信息过载。不要引用具体统计数字。用教练式口吻。值用中文写，JSON key 保持英文。
+每段 2-3 句、不要太长，不要让用户信息过载。不要重复顶部统计。语气直接自然，像熟悉工作的同事回顾事实和判断。值用中文写，JSON key 保持英文。
 
 输出 JSON schema（写入 work/insights/at_a_glance.json）：
 {

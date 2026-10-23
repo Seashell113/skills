@@ -75,12 +75,16 @@ python3 {skill_dir}/scripts/aggregate.py [--days 30] [--as-of 2026-08-27T13:56:1
 
 ### Step 4 — 洞察生成（并行子 agent + 1 个串行）
 
+先确定本期值得分析的工具范围。检出记录不等于有足够使用样本；用户已说明近期停用某工具，或仅有零星、无实质任务的残留记录时，简短说明后聚焦实际使用的工具，跳过少样本工具分析和跨工具对比。仅凭数量少不能断言完全没用过；结合任务内容及用户说明判断，不设通用数量阈值。完整采集结果保留，报告统计、图表和叙事使用同一分析范围；已有聚合数据可按 [bundle 协议](reference/evidence-bundle.md) 生成单工具输入，无需重跑抽取。
+
 按 `prompts/insight-sections.md`：
 
 1. 9 个 section 并行派发（单工具数据则跳过 `tool_comparison`、`cross_tool_workflows`，剩 7 个）。每个子 agent 读 `work/insight-context.md`，写 `work/insights/{section}.json`。此层用**较强的模型**（叙事质量敏感）。
 2. 用户要求历史知识提取/基建效果分析，或本轮复盘材料确有可复用经验或基建效果问题时，按同一提示词追加 `knowledge_findings` 与 `infrastructure_effectiveness` 两个可选 section；保留原 7/9 个使用洞察。读取 Skill/规则、实际执行、结果与采纳状态分别记录，证据不足写未知。facet 的头尾摘要、短 prefix 不能代表完整会话；关键结论缺链时按已授权 session_id / locator 有界下钻相关原文，记录实际读取范围与未覆盖部分，不默认扩大全历史抽取。
 3. 用户要求知识与经验盘点时，按 [独立知识盘点](reference/knowledge-inventory.md) 输出 `knowledge-inventory.json`。按知识点和任务阶段拆条，不受阅读报告卡片数量约束；注明长会话实际读取范围。报告只保留少量有启发的精选，不把全盘点塞进正文。
 4. 全部完成后，串行生成 `at_a_glance`（上下文 = insight-context.md + 各 section 产出要点）。
+
+主控通读整篇，检查各节是否提供不同的信息、建议是否仍值得做，以及结论是否有具体结果支撑。按用户的读者与表达偏好修订，保留有用细节，合并重复案例和方法说明；不以压缩篇幅代替洞察质量。
 
 ### Step 5 — 渲染与交付
 

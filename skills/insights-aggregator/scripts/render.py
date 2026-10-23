@@ -10,7 +10,8 @@ import json
 import os
 import re
 import sys
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from knowledge_inventory import load_inventory, write_inventory
 
 LABEL_MAP = {
@@ -261,11 +262,23 @@ def main():
     evidence_mode = agg.get("input_mode") == "evidence_bundle"
     selection = agg.get("selection") or {}
     full_statistics = selection.get("statistics_scope") == "window"
-    window_label = (f"{'统计范围' if full_statistics else '选样范围'} {window.get('cutoff') or '未知'} 至 {window.get('as_of') or agg.get('generated_at')}"
+    timezone = agg.get("display_timezone") or {}
+    timezone_name = timezone.get("name") if isinstance(timezone, dict) else timezone
+
+    def window_date(value):
+        if not value:
+            return "未知"
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if parsed.tzinfo and timezone_name:
+                parsed = parsed.astimezone(ZoneInfo(timezone_name))
+            return parsed.date().isoformat()
+        except (ValueError, ZoneInfoNotFoundError):
+            return str(value)
+
+    window_label = (f"{'统计范围' if full_statistics else '选样范围'} {window_date(window.get('since') or window.get('cutoff'))} 至 {window_date(window.get('as_of') or agg.get('generated_at'))}"
                     if evidence_mode else
                     (f"近 {window['days']} 天" if window.get("days") else "全部历史"))
-    n_internal = agg.get("internal_sessions_excluded") or 0
-    internal_note = f" · 已排除 {n_internal} 个子代理/自动评审会话" if n_internal else ""
 
     # ---- 顶部统计 ----
     semantic_stat = ((metric(selection.get("direct_read_sessions")), "直接阅读任务")
@@ -286,8 +299,10 @@ def main():
     if evidence_mode:
         unknown_stats = [name for value, name in stats if value == "未知"]
         stats = [(value, name) for value, name in stats if value != "未知"]
-        scope_html = (f'<p class="section-intro">{metric(c["total_sessions"])} 个{"窗口内活跃会话" if full_statistics else "选中任务"}；'
-                      f'洞察复用 {metric(selection.get("direct_read_sessions"))} 个直接阅读任务。统计范围与阅读样本分别计数。</p>')
+        scope_html = (f'<p class="section-intro">统计覆盖{"窗口内活跃会话" if full_statistics else "选中任务"}；'
+                      f'正文深入复盘其中 {metric(selection.get("direct_read_sessions"))} 个任务。</p>')
+        if selection.get("focus_note"):
+            scope_html += '<p class="section-intro">' + esc(selection["focus_note"]) + '</p>'
         method_html = ('<div class="narrative"><p>选样方法：' + esc(selection.get("method"))
                        + '</p><p>覆盖与限制：' + esc(selection.get("limits"))
                        + '</p><p>仅展示已提供的统计；未知不代表零。直接阅读任务不计作 facet 提取。</p>'
@@ -500,7 +515,7 @@ def main():
     agent_sessions = {AGENT_BADGE.get(a, (a,))[0]: g2["total_sessions"] for a, g2 in by_agent.items() if g2["total_sessions"] is not None}
     codex_effort = (by_agent.get("codex") or {}).get("reasoning_effort") or {}
     internal = agg.get("internal_model_effort") or {}
-    root_mix = (f"根会话：混用模型 {metric(c.get('sessions_with_mixed_models', 0))} 个；"
+    root_mix = (f"主会话中，使用过多个模型的有 {metric(c.get('sessions_with_mixed_models', 0))} 个；"
                 f"混用推理强度 {metric(c.get('sessions_with_mixed_reasoning_effort', 0))} 个。")
     internal_mix = ("内部会话统计未知。" if evidence_mode and not internal else f"内部会话：{internal.get('total_sessions', 0)} 个；"
                     "其模型/强度单独统计，未混入根会话总览、成功率或分母。")
@@ -513,16 +528,18 @@ def main():
         f'<div class="chart-card"><div class="chart-title">{esc(title)}</div>{body}</div>'
         for title, body in internal_charts
     )
-    model_effort_html = (f'<h2 id="section-model-effort">模型与推理强度口径</h2>'
+    model_units = ("Codex 按轮次统计模型与推理强度配置；缺少 turn_id 的历史记录按单条配置计数。"
+                   if "codex" in by_agent else "")
+    if "claude-code" in by_agent:
+        model_units += "Claude Code 的模型配置按助手消息计数。"
+    model_effort_html = (f'<h2 id="section-model-effort">模型与推理强度</h2>'
                          f'<div class="narrative"><p>{esc(root_mix)}</p><p>{esc(internal_mix)}</p>'
-                         '<p>Codex 的单位为去重后的 native turn（按 turn_id）配置记录；'
-                         '缺少 turn_id 的旧记录按单条配置记录保留。数据没有把档位逐轮连接到设计、执行、审查阶段或结果，'
-                         '不能据此判断 max 导致慢或过度设计。</p></div>'
+                         f'<p>{esc(model_units)}统计未关联任务阶段及结果，配置记录不能单独证明效果或解释返工原因。</p></div>'
                          f'<div class="charts-row">{internal_charts_html}</div>')
     charts = [
         ("各工具会话数", bar_chart(agent_sessions, "#0ea5e9", raw_labels=True)) if multi_tool else None,
-        ("模型记录构成（Codex 为去重 native turn）", bar_chart(c.get("models") or {}, "#14b8a6", 8, raw_labels=True)),
-        ("Codex 推理强度配置（去重 native turn）", bar_chart(codex_effort, "#a855f7", fixed_order=EFFORT_ORDER)) if codex_effort else None,
+        ("主会话的模型配置记录", bar_chart(c.get("models") or {}, "#14b8a6", 8, raw_labels=True)),
+        ("主会话的 Codex 推理强度", bar_chart(codex_effort, "#a855f7", fixed_order=EFFORT_ORDER)) if codex_effort else None,
         ("顶层工具调用类别" if partial_tools else "工具行为类别", bar_chart(c.get("tool_category_counts") or {}, "#3b82f6", 9)),
         ("项目分布（会话数）", bar_chart(c.get("projects") or {}, "#6366f1", 8, raw_labels=True)),
         ("阅读样本的任务目标" if selection.get("semantic_metrics_scope") == "sample" else "任务目标", bar_chart(c["goal_categories"], "#10b981", 8)),
@@ -546,7 +563,7 @@ def main():
     fe_html = ""
     if fe.get("headline"):
         det = f'<div class="fun-detail">{esc(fe.get("detail"))}</div>' if fe.get("detail") else ""
-        fe_html = f'<div class="fun-ending"><div class="fun-headline">“{esc(fe["headline"])}”</div>{det}</div>'
+        fe_html = f'<div class="fun-ending"><div class="fun-headline">{esc(fe["headline"])}</div>{det}</div>'
 
     knowledge_html, infrastructure_html, sources_html = evidence_sections(ins, agg.get("sources") or [])
     if method_html:
@@ -688,14 +705,15 @@ def main():
     """
 
     agents_label = " + ".join(AGENT_BADGE.get(a, (a,))[0] for a in by_agent)
+    report_title = (agents_label if not multi_tool else "Agent") + " 使用洞察报告"
     doc = f"""<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agent 使用洞察 — {esc(agents_label)}</title>
 <style>{css}</style></head>
 <body><div class="container">
-<h1>Agent 使用洞察报告</h1>
-<div class="subtitle">{esc(agents_label)} · {esc(window_label)}（{esc(c['date_range'].get('start'))} 至 {esc(c['date_range'].get('end'))}）{esc(internal_note)} · 生成于 {esc((agg.get('generated_at') or date.today().isoformat())[:10])}</div>
+<h1>{esc(report_title)}</h1>
+<div class="subtitle">{esc(window_label)} · 生成于 {esc((agg.get('generated_at') or date.today().isoformat())[:10])}</div>
 <div class="nav-toc">{toc_html}</div>
 <div class="stats-row">{stats_html}</div>
 {scope_html}

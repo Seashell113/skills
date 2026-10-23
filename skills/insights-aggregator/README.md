@@ -54,6 +54,8 @@ npx skills add https://github.com/Seashell113/skills.git -g --skill insights-agg
 
 已有任务材料时用 `aggregate.py --evidence-bundle /private/path/bundle.json --home /private/path/run` 进入原聚合与渲染流程，不重复语义抽取；统计不足时仍补跑本地采集与聚合，不能把选样规模当全部使用量。直接阅读任务与完成 facet 分开计数，未知时长、提交数、满意度与模型统计不补零。协议与示例见 [evidence bundle](reference/evidence-bundle.md)。
 
+工具分析按实际使用范围确定，零星残留记录不触发跨工具比较。聚焦单工具时复用其独立聚合统计，保留完整采集结果，并用 `selection.focus_note` 简短说明范围；报告保留原样式，主控统一修订全文以减少重复、突出具体判断和有价值的下一步。
+
 回归：`PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s skills/insights-aggregator/tests`（在仓库根目录执行）。
 
 ## 隐私说明

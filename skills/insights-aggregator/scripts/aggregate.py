@@ -299,8 +299,9 @@ def top(d, n):
 
 def build_context(agg, facets):
     c = agg["combined"]
+    multi_tool = len(agg["by_agent"]) > 1
     lines = ["# Usage data for insight generation", "",
-             "## Combined stats (all agents)", "```json"]
+             "## Combined stats (report scope)", "```json"]
     lines.append(json.dumps({
         "agents_present": list(agg["by_agent"].keys()),
         "sessions": c["total_sessions"], "analyzed_with_facets": c["sessions_with_facets"],
@@ -318,7 +319,7 @@ def build_context(agg, facets):
     }, ensure_ascii=False, indent=1))
     lines.append("```")
 
-    lines.append("\n## Per-agent comparison\n```json")
+    lines.append("\n## Tool statistics\n```json")
     per = {}
     for agent, a in agg["by_agent"].items():
         per[agent] = {
@@ -342,27 +343,34 @@ def build_context(agg, facets):
     lines.append(json.dumps(per, ensure_ascii=False, indent=1))
     lines.append("```")
 
-    x = agg["cross_tool"]
-    lines.append("\n## Cross-tool signals\n```json")
-    lines.append(json.dumps({
-        "concurrent_multitasking": x["overlap"],
-        "same_project_handoffs": x["handoffs"]["direction_counts"],
-        "handoff_examples": x["handoffs"]["examples"][:12],
-        "project_tool_matrix": x["project_tool_matrix"],
-    }, ensure_ascii=False, indent=1))
-    lines.append("```")
+    if multi_tool:
+        x = agg["cross_tool"]
+        lines.append("\n## Cross-tool signals\n```json")
+        lines.append(json.dumps({
+            "concurrent_multitasking": x["overlap"],
+            "same_project_handoffs": x["handoffs"]["direction_counts"],
+            "handoff_examples": x["handoffs"]["examples"][:12],
+            "project_tool_matrix": x["project_tool_matrix"],
+        }, ensure_ascii=False, indent=1))
+        lines.append("```")
 
     lines.append("\n## Context notes（解读数据前必读）")
     w = agg.get("window") or {}
     if w.get("days") and agg.get("input_mode") != "evidence_bundle":
         lines.append(f"- 本报告是**阶段性窗口报告**：只覆盖最近 {w['days']} 天（{w.get('cutoff')} 之后）的会话，"
                      "统计与语义同窗。叙事请立足'这个阶段'，不要写成全历史总结。")
-    lines.append("- 跨工具混用的常见动因是**成本控制**而非单纯能力偏好：Codex 走官方模型，"
-                 "Claude Code 可方便地接入低成本第三方/国产模型（看 models_by_records 即可判断是否如此——"
-                 "若出现 kimi/deepseek/glm 等模型名，说明用户在用国产模型跑可控任务）。评价分工时请基于这一动因。")
-    lines.append("- Codex 的 models / reasoning_effort 单位是**去重后的 native turn（按 turn_id）配置记录**；"
-                 "缺少 turn_id 的旧记录保留为单条配置记录。Claude 的 models 单位仍是 assistant 消息。"
-                 "thinking_block_ratio 是 Claude 侧带思考块的消息占比，是推理深度的近似信号。")
+    if multi_tool:
+        lines.append("- 工具分工需要任务与结果证据。成本、环境或习惯都可能影响选择，"
+                     "不能仅凭模型名称或记录数量断定用户的动机。")
+    else:
+        lines.append("- 本期只分析 " + next(iter(agg["by_agent"]), "当前工具")
+                     + "，跳过工具对比、工具分工与跨工具组合建议。")
+    if "codex" in agg["by_agent"]:
+        lines.append("- Codex 的 models / reasoning_effort 单位是**去重后的 native turn（按 turn_id）配置记录**；"
+                     "缺少 turn_id 的旧记录保留为单条配置记录。")
+    if "claude-code" in agg["by_agent"]:
+        lines.append("- Claude Code 的 models 单位是 assistant 消息；thinking_block_ratio 是带思考块的消息占比，"
+                     "不能单独证明推理质量。")
     lines.append("- 当前数据没有把档位逐 turn 连接到设计、执行、审查阶段或最终结果；不要据此断言 max 导致慢、"
                  "造成过度设计，或某档位导致返工。模型/强度只可作为配置分布与人工复核线索。")
     n_internal = agg.get("internal_sessions_excluded") or 0

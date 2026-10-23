@@ -12,7 +12,7 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
-from aggregate import aggregate_group, parse_iso, namespace_facet_sources, write_outputs
+from aggregate import aggregate_group, parse_iso, namespace_facet_sources, write_outputs, build_context
 from evidence_bundle import load_bundle
 from render import evidence_sections, metric, source_anchors, md_bold, TEXT_SOURCE_ANCHORS
 
@@ -113,6 +113,53 @@ class EvidenceBundleTests(unittest.TestCase):
             {"title": "Example", "evidence": ['<unknown>']}]}}, [])
         self.assertIn("&lt;unknown&gt;（来源未提供）", html)
         self.assertNotIn('<unknown>', html)
+
+    def test_focused_bundle_keeps_totals_and_hides_stale_cross_tool_sections(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bundle = example()
+            bundle["selection"]["focus_note"] = 'Only current tool <script>alert(1)</script>'
+            bundle["window"]["cutoff"] = "2026-09-01T17:00:00Z"
+            bundle["display_timezone"] = {"name": "Asia/Shanghai"}
+            group = {"total_sessions": 12, "total_messages": 40, "days_active": 7}
+            bundle["metrics"] = {"combined": group, "by_agent": {"codex": group}}
+            agg = load_bundle(self.write_bundle(root, bundle), aggregate_group([], {}), parse_iso)
+            with contextlib.redirect_stdout(io.StringIO()):
+                write_outputs(tmp, agg, [])
+            context = (root / "work/insight-context.md").read_text()
+            self.assertNotIn("## Cross-tool signals", context)
+            self.assertNotIn("Claude Code", context)
+            ins = root / "work/insights"
+            ins.mkdir()
+            for name, value in {
+                "tool_comparison": {"narrative": "STALE_COMPARISON"},
+                "cross_tool_workflows": {"observed_patterns": [{"title": "STALE_HANDOFF"}]},
+                "at_a_glance": {"tool_division": "STALE_DIVISION"},
+            }.items():
+                (ins / (name + ".json")).write_text(json.dumps(value))
+            out = root / "report.html"
+            subprocess.run([sys.executable, str(SCRIPTS / "render.py"), "--home", tmp, "--out", str(out)],
+                           check=True, capture_output=True)
+            report = out.read_text()
+            self.assertIn("Codex 使用洞察报告", report)
+            self.assertIn('<div class="stat-value">12</div>', report)
+            self.assertIn('<div class="stat-value">40</div>', report)
+            self.assertIn('<div class="stat-value">7</div>', report)
+            self.assertNotIn("STALE_", report)
+            self.assertNotIn('id="section-tools"', report)
+            self.assertIn("选样范围 2026-09-02", report)
+            self.assertIn("Only current tool &lt;script&gt;", report)
+            self.assertNotIn("Only current tool <script>", report)
+
+    def test_context_keeps_cross_tool_evidence_only_for_multiple_tools(self):
+        group = aggregate_group([], {})
+        agg = {"combined": group, "by_agent": {"codex": group, "claude-code": group},
+               "cross_tool": {"overlap": {}, "handoffs": {"direction_counts": {}, "examples": []},
+                              "project_tool_matrix": {}}}
+        context = build_context(agg, [])
+        self.assertIn("## Cross-tool signals", context)
+        self.assertIn("Claude Code 的 models 单位", context)
+        self.assertIn("不能仅凭模型名称", context)
 
     def test_window_statistics_and_inventory_keep_separate_scopes(self):
         with tempfile.TemporaryDirectory() as tmp:

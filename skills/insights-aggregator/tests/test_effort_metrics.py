@@ -93,7 +93,7 @@ class EffortMetricsTests(unittest.TestCase):
             self.assertIn(">ultra<", report)
             self.assertIn("Experimental", report)
             self.assertIn("内部会话模型配置记录", report)
-            self.assertIn("不能据此判断 max 导致慢或过度设计", report)
+            self.assertIn("配置记录不能单独证明效果或解释返工原因", report)
 
     def test_high_effort_includes_max_and_ultra(self):
         efforts = {"low": 1, "high": 1, "xhigh": 1, "max": 1, "ultra": 1}

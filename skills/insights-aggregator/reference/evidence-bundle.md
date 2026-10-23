@@ -56,3 +56,9 @@ python3 scripts/render.py --home /private/path/run
 在 `selection` 中设置 `statistics_scope: "window"`，并分别填写统计母体范围、`direct_read_sessions`、`selected_sessions` 与排除条件。若任务目标等语义图表仅来自直接阅读样本，设置 `semantic_metrics_scope: "sample"`；报告会明确区分样本图表和窗口统计。没有 facet 时，任务结果、满意度、摩擦分布保持缺失，不由工具报错或助手自报补算。
 
 独立知识盘点使用 [盘点协议](knowledge-inventory.md)，不受正文卡片上限限制；知识盘点条目数与深读会话数分别计数。
+
+## 聚焦实际使用的工具
+
+原始统计包含多个工具，但本期只分析其中一个时，保留完整聚合文件另作依据。将选中工具的原始 `by_agent[agent]` 同时用作新 bundle 的 `metrics.combined` 和唯一 `metrics.by_agent` 分组，省略 `metrics.cross_tool`；不要用多工具总数或相加活跃天数代替该工具的统计。内部会话、语义样本与来源也需按本期工具范围核对，不能只过滤工具表。
+
+`selection.focus_note` 可写一句面向读者的范围说明（例如另一工具仅有零星记录，本期不分析其使用与协作）；具体排除数及依据放在 `selection.limits`。仅有少量记录时写“不足以分析”，用户明确确认未使用时可引用这一事实，不从缺记录推断未使用。报告据 `metrics.by_agent` 判断单/多工具；单工具会隐藏工具表、分工、对比、跨工具图表和组合建议。
