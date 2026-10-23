@@ -15,10 +15,10 @@ import copy
 import json
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from urllib.parse import quote
 
-from collect import SCHEMA_VERSION
+from collect import SCHEMA_VERSION, analysis_window, facet_matches_window, parse_ts
 from evidence_bundle import load_bundle
 
 HANDOFF_WINDOW_MIN = 45      # 同项目跨工具接力窗口
@@ -95,16 +95,18 @@ def aggregate_group(metas, facets_by_key):
         "days_active": 0, "messages_per_day": 0, "message_hours": [],
         "models": {}, "reasoning_effort": {},
         "thinking_turns": 0, "thinking_total": 0,
+        "token_usage_missing_events": 0,
         "sessions_with_mixed_models": 0,
         "sessions_with_mixed_reasoning_effort": 0,
     }
     dates, rts = [], []
     for m in metas:
-        dates.append(m["start_time"])
+        dates.extend(m.get("user_message_timestamps") or [m["start_time"]])
         r["total_messages"] += m["user_message_count"]
         r["total_duration_hours"] += m.get("active_minutes", m["duration_minutes"]) / 60
         r["total_input_tokens"] += m["input_tokens"]
         r["total_output_tokens"] += m["output_tokens"]
+        r["token_usage_missing_events"] += m.get("token_usage_missing_events", 0)
         r["git_commits"] += m["git_commits"]
         r["git_pushes"] += m["git_pushes"]
         r["total_interruptions"] += m["user_interruptions"]
@@ -415,6 +417,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--home", default=os.path.expanduser("~/.agent-insights"))
     ap.add_argument("--days", type=int, default=30, help="报告窗口：最近 N 天（0=全历史），统计与语义同窗")
+    ap.add_argument("--since", help="活动窗口起点 ISO 8601（开区间），优先于 --days")
     ap.add_argument("--as-of", help="冻结窗口截止时间（ISO 8601；默认当前 UTC 时间）")
     ap.add_argument("--evidence-bundle", help="复用已准备证据与已知统计；跳过会话缓存采集/聚合")
     args = ap.parse_args()
@@ -428,22 +431,46 @@ def main():
         return
 
 
-    as_of = parse_iso(args.as_of) if args.as_of else datetime.now(timezone.utc)
-    if as_of is None:
-        ap.error("--as-of 必须是 ISO 8601 时间，例如 2026-08-27T13:56:10.186054+00:00")
-    as_of = as_of.astimezone(timezone.utc)
-
+    # A normal collect -> aggregate run must reuse the same frozen instant.
+    collected = None
+    try:
+        with open(os.path.join(home, "work/collect-summary.json"), encoding="utf-8") as fh:
+            collected = json.load(fh)
+    except (OSError, ValueError):
+        pass
+    saved_window = (collected or {}).get("analysis_window")
+    use_saved = (not args.as_of and saved_window
+                 and ((args.since and parse_ts(args.since) == parse_ts(saved_window.get("since")))
+                      or (not args.since and args.days == collected.get("facet_window_days"))))
+    try:
+        window = dict(saved_window) if use_saved else analysis_window(args.days, args.since, args.as_of)
+    except ValueError as exc:
+        ap.error(str(exc))
+    as_of = parse_ts(window["as_of"])
+    # Preserve explicitly supplied formatting in generated_at for existing consumers.
+    generated_at = (parse_ts(args.as_of).isoformat() if args.as_of else as_of.isoformat())
+    cutoff_iso = window["since"] or ""
     metas = []
+    rejected_window_metas = 0
     for agent in ("claude-code", "codex"):
-        metas.extend(load_dir(os.path.join(home, "cache/meta", agent)))
-    # 窗口过滤：统计与语义使用同一时间窗，保证报告叙事口径一致
-    cutoff_iso = ""
-    if args.days > 0:
-        cutoff_iso = (as_of - timedelta(days=args.days)) \
-            .isoformat().replace("+00:00", "Z")
-        metas = [m for m in metas if m["start_time"] >= cutoff_iso]
+        for meta in load_dir(os.path.join(home, "cache/meta", agent)):
+            stamp = meta.get("analysis_window")
+            if stamp is not None:
+                valid = stamp == window
+            else:
+                # Old lifecycle caches are safe only when wholly inside scope.
+                start = parse_ts(meta.get("start_time"))
+                end = parse_ts(meta.get("end_time") or meta.get("start_time"))
+                valid = (start is not None and end is not None and end <= as_of
+                         and (not window["since"] or start > parse_ts(window["since"])))
+            if valid:
+                metas.append(meta)
+            else:
+                rejected_window_metas += 1
+    metas_by_key = {(m["agent"], m["session_id"]): m for m in metas}
     facets_raw = []
     stale_codex_facet_keys = set()
+    stale_window_facet_keys = set()
     for agent in ("claude-code", "codex"):
         for f in load_dir(os.path.join(home, "cache/facets", agent)):
             if valid_facet(f):
@@ -452,25 +479,21 @@ def main():
                         and f.get("_parser_schema_version") != SCHEMA_VERSION):
                     stale_codex_facet_keys.add(("codex", f.get("session_id")))
                     continue
+                key = (f["agent"], f.get("session_id"))
+                meta = metas_by_key.get(key)
+                if meta is None or not facet_matches_window(f, meta):
+                    stale_window_facet_keys.add(key)
+                    continue
                 facets_raw.append(f)
 
     facets_by_key = {(f["agent"], f["session_id"]): f for f in facets_raw if f.get("session_id")}
 
-    # substantive + warmup + 内部会话过滤
-    def is_minimal(m):
-        f = facets_by_key.get((m["agent"], m["session_id"]))
-        if not f:
-            return False
-        cats = [k for k, v in (f.get("goal_categories") or {}).items() if v > 0]
-        return cats == ["warmup_minimal"]
-
     # 内部会话（spawn_agent 子会话 / 纯自动评审）单独计数后排除：
     # 它们不是用户发起的交互，会虚高会话数、low 档位占比和"并行多开"信号
-    internal = [m for m in metas if m.get("is_internal")]
+    internal = [m for m in metas if m.get("is_internal") and m.get("has_window_activity", True)]
     metas = [m for m in metas
              if not m.get("is_internal")
-             and m["user_message_count"] >= 2 and m["duration_minutes"] >= 1
-             and not is_minimal(m)]
+             and m["user_message_count"] >= 1]
     # 分支/重复去重（同 agent+session_id 保留人类消息最多者）
     best = {}
     for m in metas:
@@ -487,14 +510,18 @@ def main():
 
     internal_group = aggregate_group(internal, facets_by_key)
     agg = {
-        "generated_at": as_of.isoformat(),
+        "generated_at": generated_at,
         "stale_codex_facets_ignored": stale_codex_facets_ignored,
+        "stale_window_facets_ignored": sum((m["agent"], m["session_id"]) in stale_window_facet_keys for m in metas),
+        "mismatched_window_metas_ignored": rejected_window_metas,
         "window": {"days": args.days, "cutoff": cutoff_iso[:10] if cutoff_iso else None,
-                   "as_of": as_of.isoformat()},
+                   "as_of": window["as_of"], "since": window["since"],
+                   "bounds": "(since, as_of]"},
         "internal_sessions_excluded": len(internal),
         "internal_breakdown": {
             "subagent": sum(1 for m in internal if m.get("thread_source") == "subagent"),
-            "auto_review": sum(1 for m in internal if m.get("thread_source") != "subagent"),
+            "auto_review": sum(1 for m in internal if m.get("thread_source") not in {"subagent", "guardian_review"}),
+            "guardian_review": sum(1 for m in internal if m.get("thread_source") == "guardian_review"),
         },
         "internal_model_effort": {
             "total_sessions": internal_group["total_sessions"],
@@ -560,6 +587,8 @@ def write_outputs(home, agg, used_facets):
         "by_agent": {a: g["total_sessions"] for a, g in agg["by_agent"].items()},
         "facets_used": agg["combined"]["sessions_with_facets"],
         "stale_codex_facets_ignored": agg.get("stale_codex_facets_ignored"),
+        "stale_window_facets_ignored": agg.get("stale_window_facets_ignored"),
+        "mismatched_window_metas_ignored": agg.get("mismatched_window_metas_ignored"),
         "cross_tool_overlap_events": agg["cross_tool"]["overlap"].get("cross_tool_overlap_events"),
         "handoff_direction_counts": agg["cross_tool"]["handoffs"]["direction_counts"],
         "aggregated": out, "insight_context": ctx_path,
