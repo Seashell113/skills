@@ -11,6 +11,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
+import subprocess
+import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -121,6 +125,45 @@ def _call_link_audit(records: list[JsonlRecord]) -> dict[str, Any]:
     }
 
 
+@contextmanager
+def _source_jsonl(path, limit, expected_sha256):
+    """Hash the physical frozen prefix; decompress zstd only into temporary files."""
+    compressed = str(path).endswith(".zst")
+    if not compressed:
+        with path.open("rb") as source:
+            # Plain JSONL is hashed during this same read, without a second pass.
+            yield source, limit, None
+        return
+    digest = hashlib.sha256()
+    # TemporaryFile is unlinked on close and never leaves a decompressed archive.
+    with path.open("rb") as source, tempfile.TemporaryFile() as frozen:
+        remaining = limit
+        while remaining:
+            chunk = source.read(min(1024 * 1024, remaining))
+            if not chunk:
+                raise ValueError("unable to read frozen cutoff")
+            digest.update(chunk)
+            frozen.write(chunk)
+            remaining -= len(chunk)
+        actual_sha256 = digest.hexdigest()
+        if expected_sha256 and actual_sha256 != expected_sha256:
+            raise ValueError(f"snapshot SHA-256 mismatch: expected={expected_sha256}, actual={actual_sha256}")
+        executable = shutil.which("zstd") or (
+            "/opt/homebrew/bin/zstd" if Path("/opt/homebrew/bin/zstd").exists() else None
+        )
+        if not executable:
+            raise ValueError("reading .jsonl.zst requires the zstd executable")
+        frozen.seek(0)
+        with tempfile.TemporaryFile() as decoded:
+            result = subprocess.run([executable, "-dc"], stdin=frozen, stdout=decoded,
+                                    stderr=subprocess.PIPE)
+            if result.returncode:
+                raise ValueError("zstd decompression failed: " + result.stderr.decode(errors="replace")[:300])
+            decoded_length = decoded.tell()
+            decoded.seek(0)
+            yield decoded, decoded_length, actual_sha256
+
+
 def read_owned_codex_stream(
     path: str | Path,
     expected_session_id: str,
@@ -146,12 +189,12 @@ def read_owned_codex_stream(
 
     records: list[JsonlRecord] = []
     invalid_lines: list[dict[str, int]] = []
-    digest = hashlib.sha256()
     offset = 0
     line_number = 0
-    with source_path.open("rb") as handle:
-        while offset < limit:
-            chunk = handle.readline(limit - offset)
+    digest = hashlib.sha256()
+    with _source_jsonl(source_path, limit, expected_sha256) as (handle, jsonl_limit, physical_sha256):
+        while offset < jsonl_limit:
+            chunk = handle.readline(jsonl_limit - offset)
             if not chunk:
                 break
             line_number += 1
@@ -161,35 +204,17 @@ def read_owned_codex_stream(
             try:
                 decoded = json.loads(chunk)
             except (json.JSONDecodeError, UnicodeDecodeError):
-                invalid_lines.append(
-                    {
-                        "line_number": line_number,
-                        "start_offset": start_offset,
-                        "end_offset": offset,
-                    }
-                )
-                continue
+                decoded = None
             if not isinstance(decoded, dict):
-                invalid_lines.append(
-                    {
-                        "line_number": line_number,
-                        "start_offset": start_offset,
-                        "end_offset": offset,
-                    }
-                )
+                invalid_lines.append({"line_number": line_number, "start_offset": start_offset,
+                                      "end_offset": offset})
                 continue
-            records.append(
-                JsonlRecord(line_number, start_offset, offset, decoded)
-            )
-    if offset != limit:
-        raise ValueError(f"unable to read frozen cutoff: read={offset}, cutoff={limit}")
-
-    prefix_sha256 = digest.hexdigest()
+            records.append(JsonlRecord(line_number, start_offset, offset, decoded))
+        if offset != jsonl_limit:
+            raise ValueError(f"unable to read frozen cutoff: read={offset}, cutoff={jsonl_limit}")
+    prefix_sha256 = physical_sha256 or digest.hexdigest()
     if expected_sha256 and prefix_sha256 != expected_sha256:
-        raise ValueError(
-            "snapshot SHA-256 mismatch: "
-            f"expected={expected_sha256}, actual={prefix_sha256}"
-        )
+        raise ValueError(f"snapshot SHA-256 mismatch: expected={expected_sha256}, actual={prefix_sha256}")
 
     meta_indexes = [
         index for index, record in enumerate(records) if _session_id(record)
@@ -292,6 +317,7 @@ def read_owned_codex_stream(
         "identity_valid": identity_valid,
         "ownership_status": ownership_status,
         "byte_length": limit,
+        "offset_encoding": "decompressed_jsonl" if str(source_path).endswith(".zst") else "source_bytes",
         "sha256": prefix_sha256,
         "line_count": line_number,
         "valid_json_lines": len(records),

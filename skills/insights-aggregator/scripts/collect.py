@@ -11,9 +11,10 @@
                      [--max-facets 50] [--claude-dir ~/.claude] [--codex-dir ~/.codex]
 
 窗口语义:
-  - SessionMeta 始终全量增量维护（解析便宜，长程信号需要完整历史）。
-  - facet 提取只针对 --days 窗口内（默认最近 30 天）的实质会话，新→旧最多
-    --max-facets 条，不向窗口外回填。--days 0 表示不限窗口。
+  - --since / --as-of 定义 (since, as_of]；--days 默认 30，0 表示不设起点。
+  - SessionMeta、transcript 和 facet 共用活动窗口，缓存按窗口与来源状态失效。
+  - 根会话统计需至少一次窗口内用户输入；facet 单独要求至少 2 次输入和 1 分钟，
+    新→旧最多 --max-facets 条，不向窗口外回填。
   - 已缓存 facet 的会话若消息数显著增长（resume 续写 ≥5 条），会重新入队提取。
 
 输出（写入 --home 目录）:
@@ -35,7 +36,7 @@ from datetime import datetime, timedelta, timezone
 from codex_segments import read_owned_codex_stream
 
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 INTERRUPT_MARKER = "[Request interrupted by user"
 # Claude Code 把 /command 的本地执行记录也写成 user 消息，不是人类输入
 CLAUDE_NOISE_RE = re.compile(
@@ -102,13 +103,52 @@ def parse_ts(s):
     if not s:
         return None
     try:
-        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
     except ValueError:
         return None
 
 
 def iso(dt):
     return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def analysis_window(days=30, since=None, as_of=None):
+    """Canonical event window: exclusive since, inclusive as_of; naive ISO means UTC."""
+    end = parse_ts(as_of) if as_of else datetime.now(timezone.utc)
+    if end is None:
+        raise ValueError("--as-of must be an ISO 8601 timestamp")
+    if days < 0:
+        raise ValueError("--days must be non-negative")
+    start = parse_ts(since) if since else (end - timedelta(days=days) if days else None)
+    if since and start is None:
+        raise ValueError("--since must be an ISO 8601 timestamp")
+    if start is not None and start >= end:
+        raise ValueError("--since must be earlier than --as-of")
+    return {"since": iso(start) if start else None, "as_of": iso(end)}
+
+
+def project_window(session, window):
+    """Project all metrics/transcripts together, never infer activity from creation time."""
+    start, end = parse_ts(window["since"]), parse_ts(window["as_of"])
+    events = [event for event in session.events if event.get("ts") is not None
+              and (start is None or event["ts"] > start) and event["ts"] <= end]
+    timestamps = [event["ts"] for event in events]
+    projected = ParsedSession(session.agent, session.session_id, session.project_path, events,
+                              min(timestamps) if timestamps else end,
+                              max(timestamps) if timestamps else end,
+                              # Native summary can describe out-of-window work.
+                              summary=None, source=session.source, thread_source=session.thread_source,
+                              source_audit=session.source_audit)
+    return projected
+
+
+def facet_matches_window(facet, meta):
+    stamp = facet.get("_analysis_window")
+    if stamp is not None:
+        return stamp == meta.get("analysis_window")
+    # Legacy lifecycle facets are safe only if the entire parsed history is in scope.
+    return bool(meta.get("window_covers_session", not meta.get("analysis_window")))
 
 
 # ============================================================================
@@ -299,7 +339,7 @@ def claude_parse(path, session_id):
 
 # ------------------------------- Codex 适配器 -------------------------------
 
-CODEX_FILE_RE = re.compile(r"rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$")
+CODEX_FILE_RE = re.compile(r"rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl(?:\.zst)?$")
 EXIT_CODE_RE = re.compile(r"exited with code (\d+)")
 PATCH_FILE_RE = re.compile(r"^\*\*\* (Add|Update|Delete) File: (.+)$", re.MULTILINE)
 CODEX_WRAPPER_RE = re.compile(r"^<(environment_context|user_instructions|permissions|turn_context)", re.IGNORECASE)
@@ -331,25 +371,32 @@ def codex_scan(codex_dir, snapshot_manifest=None):
             })
         return out
 
-    root = os.path.join(codex_dir, "sessions")
     out = []
-    if not os.path.isdir(root):
-        return out
-    for dirpath, _dirnames, filenames in os.walk(root):
-        for f in filenames:
-            m = CODEX_FILE_RE.search(f)
-            if not m:
-                continue
-            p = os.path.join(dirpath, f)
-            try:
-                st = os.stat(p)
-            except OSError:
-                continue
-            out.append({"agent": "codex", "session_id": m.group(1),
-                        "path": p, "mtime": st.st_mtime,
-                        "mtime_ns": st.st_mtime_ns, "size": st.st_size,
-                        "byte_length": st.st_size})
-    return out
+    for directory in ("sessions", "archived_sessions"):
+        root = os.path.join(codex_dir, directory)
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _dirnames, filenames in os.walk(root):
+            for filename in filenames:
+                match = CODEX_FILE_RE.search(filename)
+                if not match:
+                    continue
+                path = os.path.join(dirpath, filename)
+                try:
+                    st = os.stat(path)
+                except OSError:
+                    continue
+                out.append({"agent": "codex", "session_id": match.group(1),
+                            "path": path, "mtime": st.st_mtime,
+                            "mtime_ns": st.st_mtime_ns, "size": st.st_size,
+                            "byte_length": st.st_size})
+    # An archived/live duplicate represents one physical identity; prefer latest source.
+    best = {}
+    for item in out:
+        key = item["session_id"]
+        if key not in best or item["mtime_ns"] > best[key]["mtime_ns"]:
+            best[key] = item
+    return list(best.values())
 
 
 def _codex_patch_stats(patch_text, events, ts):
@@ -402,6 +449,7 @@ def codex_parse(path, session_id, byte_limit=None, expected_sha256=None):
     start, thread_source = None, None
     call_cmds = {}  # call_id → 命令字符串，用于报错豁免判断
     current_turn_id = None
+    previous_usage = None
     owned = read_owned_codex_stream(
         path,
         session_id,
@@ -456,11 +504,27 @@ def codex_parse(path, session_id, byte_limit=None, expected_sha256=None):
             elif pt == "token_count":
                 info = p.get("info") or {}
                 last = info.get("last_token_usage") or {}
-                if last:
-                    # 对齐 Claude 口径：input 不含缓存读取
-                    tin = max(0, (last.get("input_tokens") or 0) - (last.get("cached_input_tokens") or 0))
+                total = info.get("total_token_usage") or {}
+                usage = None
+                if total and previous_usage is not None:
+                    # Cumulative counters can replay unchanged snapshots. Subtract the
+                    # preceding owned snapshot, including snapshots before --since.
+                    delta = {key: (total.get(key) or 0) - (previous_usage.get(key) or 0)
+                             for key in ("input_tokens", "cached_input_tokens", "output_tokens")}
+                    if all(value >= 0 for value in delta.values()):
+                        usage = delta
+                elif last:
+                    usage = last
+                previous_usage = total or None
+                if usage is not None:
+                    tin = max(0, (usage.get("input_tokens") or 0) - (usage.get("cached_input_tokens") or 0))
                     events.append({"kind": "tokens", "ts": ts, "tokens_in": tin,
-                                   "tokens_out": last.get("output_tokens") or 0,
+                                   "tokens_out": usage.get("output_tokens") or 0,
+                                   "turn_id": current_turn_id})
+                elif info:
+                    # No reliable baseline: do not charge a lifecycle cumulative total
+                    # to the first window record. Report the missing measurement.
+                    events.append({"kind": "tokens_missing", "ts": ts,
                                    "turn_id": current_turn_id})
             elif pt == "turn_aborted" and p.get("reason") == "interrupted":
                 events.append({"kind": "interrupt", "ts": ts,
@@ -675,7 +739,7 @@ def compute_meta(s: ParsedSession, source_info):
     # 内部会话判定：spawn_agent 的 worker/grader 子会话（thread_source=subagent），
     # 或纯自动评审会话（只有 auto-review 轮次、无用户主模型轮次）。
     # 这些不是用户发起的交互，计入统计会污染会话数/模型分布/并行检测。
-    is_internal = (getattr(s, "thread_source", None) == "subagent"
+    is_internal = (getattr(s, "thread_source", None) in {"subagent", "guardian_review"}
                    or (auto_review_turns > 0 and not models))
     # 活跃时长：事件间隔求和，单段 gap 封顶 15 分钟。跨天/跨周 resume 的会话
     # 用首尾跨度会严重虚高（一个会话挂一周 = 168h），聚合统计应使用本值。
@@ -705,6 +769,7 @@ def compute_meta(s: ParsedSession, source_info):
         "git_pushes": git_pushes,
         "input_tokens": tokens_in,
         "output_tokens": tokens_out,
+        "token_usage_missing_events": sum(ev["kind"] == "tokens_missing" for ev in s.events),
         "first_prompt": first_prompt,
         "summary": s.summary,
         "user_interruptions": interruptions,
@@ -768,7 +833,9 @@ def main():
     ap.add_argument("--home", default=os.path.expanduser("~/.agent-insights"))
     ap.add_argument("--claude-dir", default=os.environ.get("CLAUDE_CONFIG_DIR", os.path.expanduser("~/.claude")))
     ap.add_argument("--codex-dir", default=os.path.expanduser("~/.codex"))
-    ap.add_argument("--days", type=int, default=30, help="facet 提取窗口：最近 N 天（0=不限）；meta 始终全量维护")
+    ap.add_argument("--days", type=int, default=30, help="活动窗口：最近 N 天（0=不限），--since 优先")
+    ap.add_argument("--since", help="活动窗口起点 ISO 8601（开区间）")
+    ap.add_argument("--as-of", help="活动窗口终点 ISO 8601（闭区间；默认当前 UTC）")
     ap.add_argument("--max-load", type=int, default=200, help="单次最多解析的未缓存会话数")
     ap.add_argument("--max-facets", type=int, default=50, help="窗口内最多提取的 facet 数")
     ap.add_argument(
@@ -776,6 +843,11 @@ def main():
         help="使用冻结的 Codex rollout 清单（path/byte_length/sha256），而非实时扫描",
     )
     args = ap.parse_args()
+
+    try:
+        window = analysis_window(args.days, args.since, args.as_of)
+    except ValueError as exc:
+        ap.error(str(exc))
 
     home = args.home
     for sub in ("cache/meta/claude-code", "cache/meta/codex",
@@ -788,8 +860,9 @@ def main():
     )
     scanned.sort(key=lambda x: -x["mtime"])
 
-    metas, parsed_cache = [], {}
+    metas = []
     loaded = skipped_cache = failed = 0
+    window_start, window_end = parse_ts(window["since"]), parse_ts(window["as_of"])
     failure_details = []
     for info in scanned:
         meta_path = os.path.join(home, "cache/meta", info["agent"], info["session_id"] + ".json")
@@ -798,7 +871,8 @@ def main():
             try:
                 with open(meta_path, encoding="utf-8") as fh:
                     cached = json.load(fh)
-                if (cached.get("schema_version") != SCHEMA_VERSION
+                if (cached.get("analysis_window") != window
+                        or cached.get("schema_version") != SCHEMA_VERSION
                         or cached.get("src_mtime") != info["mtime"]
                         or cached.get("src_mtime_ns") != info.get("mtime_ns")
                         or cached.get("src_size") != info.get("size")
@@ -847,23 +921,27 @@ def main():
                 })
             failed += 1
             continue
+        source_start, source_end = iso(s.start), iso(s.end)
+        covers_session = all((window_start is None or event["ts"] > window_start)
+                             and event["ts"] <= window_end for event in s.events if event.get("ts"))
+        s = project_window(s, window)
         meta = compute_meta(s, info)
+        meta.update(analysis_window=window, source_start_time=source_start,
+                    source_end_time=source_end, window_covers_session=covers_session,
+                    has_window_activity=bool(s.events))
         with open(meta_path, "w", encoding="utf-8") as fh:
             json.dump(meta, fh, ensure_ascii=False, indent=1)
         os.chmod(meta_path, 0o600)
         metas.append(meta)
-        parsed_cache[(info["agent"], info["session_id"])] = s
+        # Keep only one parsed session in memory; transcripts are reparsed on demand.
+        del s
 
-    # facet 选取：窗口内（--days，按会话开始时间）的实质会话，新→旧最多 --max-facets 条。
-    # 不向窗口外回填；已缓存的跳过，除非会话在提取后又显著续写（消息数 +5 以上）。
-    cutoff_iso = ""
-    if args.days > 0:
-        cutoff_iso = iso(datetime.now(timezone.utc) - timedelta(days=args.days))
+    # Statistics include every root with real in-window input; facet cost keeps
+    # its independent substantive threshold.
     substantive = [m for m in metas if m["user_message_count"] >= 2 and m["duration_minutes"] >= 1
                    and not m.get("is_internal")]
-    internal_count = sum(1 for m in metas if m.get("is_internal"))
-    in_window = [m for m in substantive if m["start_time"] >= cutoff_iso]
-    in_window.sort(key=lambda m: m["start_time"], reverse=True)
+    internal_count = sum(1 for m in metas if m.get("is_internal") and m.get("has_window_activity"))
+    in_window = sorted(substantive, key=lambda m: m["start_time"], reverse=True)
     candidates = in_window[:args.max_facets]
     pending, cached_facets_in_window = [], 0
     for m in candidates:
@@ -874,6 +952,8 @@ def main():
                 with open(facet_path, encoding="utf-8") as fh:
                     facet = json.load(fh)
                     old_count = facet.get("_user_message_count")
+                if not facet_matches_window(facet, m):
+                    stale = True
                 if m["agent"] == "codex" and facet.get("_parser_schema_version") != SCHEMA_VERSION:
                     stale = True  # Parser fixes can change transcript meaning without +5 messages.
                 if old_count is not None and m["user_message_count"] - old_count >= 5:
@@ -884,25 +964,20 @@ def main():
                 cached_facets_in_window += 1
                 continue
         key = (m["agent"], m["session_id"])
-        s = parsed_cache.get(key)
+        src = next((i for i in scanned if (i["agent"], i["session_id"]) == key), None)
+        if not src:
+            continue
+        try:
+            if m["agent"] == "claude-code":
+                s = claude_parse(src["path"], m["session_id"])
+            else:
+                s = codex_parse(src["path"], m["session_id"], byte_limit=src.get("byte_length"),
+                                expected_sha256=src.get("sha256"))
+        except (OSError, UnicodeDecodeError, ValueError):
+            s = None
         if s is None:
-            src = next((i for i in scanned if (i["agent"], i["session_id"]) == key), None)
-            if not src:
-                continue
-            try:
-                if m["agent"] == "claude-code":
-                    s = claude_parse(src["path"], m["session_id"])
-                else:
-                    s = codex_parse(
-                        src["path"],
-                        m["session_id"],
-                        byte_limit=src.get("byte_length"),
-                        expected_sha256=src.get("sha256"),
-                    )
-            except (OSError, UnicodeDecodeError, ValueError):
-                s = None
-            if s is None:
-                continue
+            continue
+        s = project_window(s, window)
         tpath = os.path.join(home, "transcripts", m["agent"], m["session_id"] + ".txt")
         with open(tpath, "w", encoding="utf-8") as fh:
             fh.write(format_transcript(s, m))
@@ -911,6 +986,7 @@ def main():
                         "transcript_path": tpath, "facet_path": facet_path,
                         "user_message_count": m["user_message_count"],
                         "parser_schema_version": SCHEMA_VERSION,
+                        "analysis_window": window,
                         "chars": os.path.getsize(tpath)})
 
     with open(os.path.join(home, "work/pending_facets.json"), "w", encoding="utf-8") as fh:
@@ -969,6 +1045,8 @@ def main():
             ),
         },
         "facet_window_days": args.days,
+        "analysis_window": window,
+        "root_sessions_in_window": sum(not m.get("is_internal") and m["user_message_count"] >= 1 for m in metas),
         "internal_sessions_excluded": internal_count,
         "substantive_total": len(substantive),
         "substantive_in_window": len(in_window),
