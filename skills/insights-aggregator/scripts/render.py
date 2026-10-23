@@ -303,7 +303,8 @@ def main():
                       f'正文深入复盘其中 {metric(selection.get("direct_read_sessions"))} 个任务。</p>')
         if selection.get("focus_note"):
             scope_html += '<p class="section-intro">' + esc(selection["focus_note"]) + '</p>'
-        method_html = ('<div class="narrative"><p>选样方法：' + esc(selection.get("method"))
+        method_label = "分析范围与方法：" if selection.get("semantic_metrics_scope") == "window" else "选样方法："
+        method_html = ('<div class="narrative"><p>' + method_label + esc(selection.get("method"))
                        + '</p><p>覆盖与限制：' + esc(selection.get("limits"))
                        + '</p><p>仅展示已提供的统计；未知不代表零。直接阅读任务不计作 facet 提取。</p>'
                        + ('<p>未采集：' + esc('、'.join(unknown_stats)) + '。</p>' if unknown_stats else '')
@@ -371,7 +372,10 @@ def main():
             rows += (f'<div class="project-area"><div class="area-header"><span class="area-name">{esc(a.get("name"))}</span>'
                      f'<span>{tools}<span class="area-count">约 {esc(a.get("session_count"))} 个会话</span></span></div>'
                      f'<div class="area-desc">{esc(a.get("description"))}</div></div>')
-        areas_html = f'<h2 id="section-work">工作版图</h2>' + ('<p class="section-intro">以下按直接阅读样本归纳，用于理解工作内容，不代表全部会话的主题占比。</p>' if full_statistics else '') + f'<div class="project-areas">{rows}</div>'
+        area_scope = ('以下按窗口内全部已读主会话的主要用途归类；同一事项可能跨多个会话，会话数不等于独立项目数。'
+                      if selection.get("semantic_metrics_scope") == "window" else
+                      '以下按直接阅读样本归纳，用于理解工作内容，不代表全部会话的主题占比。')
+        areas_html = f'<h2 id="section-work">工作版图</h2>' + (f'<p class="section-intro">{area_scope}</p>' if full_statistics else '') + f'<div class="project-areas">{rows}</div>'
 
     # ---- 交互风格 ----
     style = ins.get("interaction_style") or {}
