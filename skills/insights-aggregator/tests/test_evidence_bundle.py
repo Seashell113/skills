@@ -114,6 +114,37 @@ class EvidenceBundleTests(unittest.TestCase):
         self.assertIn("&lt;unknown&gt;（来源未提供）", html)
         self.assertNotIn('<unknown>', html)
 
+    def test_window_statistics_and_inventory_keep_separate_scopes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bundle = example()
+            bundle["selection"].update(statistics_scope="window", semantic_metrics_scope="sample")
+            bundle["display_timezone"] = {"name": "Asia/Shanghai", "label": "CST", "utc_offset": "+0800"}
+            for group in [bundle["metrics"]["combined"], bundle["metrics"]["by_agent"]["codex"]]:
+                group.update(total_sessions=20, tool_wrapped_calls=5, languages={"Python": 1},
+                             total_lines_added=2, total_lines_removed=1,
+                             tool_category_counts={"orchestration": 5}, message_hours=[9])
+            path = self.write_bundle(root, bundle)
+            subprocess.run([sys.executable, str(SCRIPTS / "aggregate.py"), "--evidence-bundle", str(path),
+                            "--home", str(root)], check=True, capture_output=True)
+            inventory = root / "inventory-input.json"
+            inventory.write_text(json.dumps({"schema_version": 1, "scope": {"sessions_read": 1}, "items": [
+                {"id": "K1", "title": "Point", "summary": "Bounded", "status": "candidate",
+                 "evidence": [{"source_id": "S1", "locator": "L2"}]}]}))
+            out = root / "report.html"
+            subprocess.run([sys.executable, str(SCRIPTS / "render.py"), "--home", str(root), "--out", str(out),
+                            "--knowledge-inventory", str(inventory)], check=True, capture_output=True)
+            report = out.read_text()
+            stats = re.search(r'<div class="stats-row">(.*?)</div>\s*<p', report, re.S).group(1)
+            self.assertIn("活跃会话", stats)
+            self.assertIn("直接阅读任务", stats)
+            self.assertNotIn("提交命令记录", stats)
+            self.assertNotIn("涉及语言", report)
+            self.assertIn("Asia/Shanghai", report)
+            self.assertIn("内部的工具未完整展开", report)
+            self.assertIn('href="knowledge-inventory.html"', report)
+            self.assertTrue((root / "knowledge-inventory.html").is_file())
+
     def test_rejects_duplicate_source_and_mistyped_metric(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

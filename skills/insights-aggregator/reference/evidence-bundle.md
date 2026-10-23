@@ -48,3 +48,11 @@ python3 scripts/render.py --home /private/path/run
 输入和报告留在私密本地目录，权限由聚合/渲染设为 0600。公开源码只保留合成测试，不能带入真实会话、公司内容或报告。
 
 正常 facet 缓存路径在聚合时将本地 source id 转为 `facet/<agent>/<session_id>/<local_id>`（各部分 URL 编码），并同步候选条目的 evidence 引用；缓存文件保持原样。同一 facet 内重复 id 会明确拒绝，两个会话各自的 `S1` 不会误链。bundle 的 source id 已要求全局唯一，沿用原值。
+
+## 确定性统计与语义样本分别复用
+
+语义只深读部分任务时，也可以先用 collect / aggregate 重算完整授权窗口的统计，设置 `--max-facets 0` 避免新 LLM 抽取。将聚合的 `combined`、`by_agent`、`cross_tool` 放入 bundle 的 `metrics`，保留精确窗口和统计来源清单；不要把 `available_metrics` 等展示字段再当输入指标。可选传顶层 `internal_sessions_excluded` 与 `internal_model_effort` 保留内部会话独立统计。
+
+在 `selection` 中设置 `statistics_scope: "window"`，并分别填写统计母体范围、`direct_read_sessions`、`selected_sessions` 与排除条件。若任务目标等语义图表仅来自直接阅读样本，设置 `semantic_metrics_scope: "sample"`；报告会明确区分样本图表和窗口统计。没有 facet 时，任务结果、满意度、摩擦分布保持缺失，不由工具报错或助手自报补算。
+
+独立知识盘点使用 [盘点协议](knowledge-inventory.md)，不受正文卡片上限限制；知识盘点条目数与深读会话数分别计数。

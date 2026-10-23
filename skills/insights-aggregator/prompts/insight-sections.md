@@ -7,6 +7,8 @@
 - 第二阶段（串行）：全部完成后，再按文末 `at_a_glance` 提示词生成总览（其上下文 = insight-context.md + 各 section 产出要点），写入 `work/insights/at_a_glance.json`。
 - 若数据中只有单一工具（`agents_present` 只有一个），跳过 `tool_comparison` 与 `cross_tool_workflows` 两个 section。
 
+统计范围与语义读取范围可能不同：样本中的频率、任务类别、满意度不能外推到全部会话。保留原有分析章节和阅读节奏；独立知识盘点按 [盘点协议](../reference/knowledge-inventory.md) 输出，报告只选有启发且有据的条目，不承担穷举和入库管理。
+
 每个子 agent 的统一收尾要求（附加到每个提示词之后）：
 
 > 先用 Read 工具读取使用数据：{{context_path}}。然后用 Write 工具将**纯 JSON 对象**（不带 markdown 代码块标记）写入 {{output_path}}。所有叙述性文字（narrative/description/title 等的值）用中文写，JSON 的 key 保持英文。写完后最终回复只需：`done {{section_name}}`。

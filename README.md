@@ -27,7 +27,7 @@ Skill 是给 AI Agent 读的能力说明书：每个技能以一份 `SKILL.md` �
 | Skill 建设 | [skill-creator](skills/skill-creator/) | 创建、改造、评估或优化一个 skill | `SKILL.md`、测试 prompt、评测结果 |
 | 技术决策 | [tech-plan-pairing](skills/tech-plan-pairing/) | 技术方向还模糊，需要多轮澄清和方案取舍 | 技术方案、决策记录、待验证项 |
 | 知识治理 | [project-knowledge-manager](skills/project-knowledge-manager/) | 项目 README、AGENTS、docs、模块知识需要归位或审计 | 初始化计划、文档更新、审计报告 |
-| 使用复盘 | [insights-aggregator](skills/insights-aggregator/) | 想分析 Claude Code 与 Codex 的本地使用情况 | 使用洞察 HTML 报告，可选知识与基建效果视角 |
+| 使用复盘 | [insights-aggregator](skills/insights-aggregator/) | 想分析 Claude Code 与 Codex 的本地使用情况 | 活动窗口统计与使用洞察报告，可选独立知识盘点及基建效果分析 |
 | 行业资讯 | [web-ai-daily-paper](skills/web-ai-daily-paper/) | 生成 AI/Web 早报、审阅入选与落选候选、用人工理由持续校准策略 | 中文早报、Review、证据包、反馈 case |
 | 代码审查 | [fe-code-review](skills/fe-code-review/) | 前端分支、PR 或版本实现需要版本级审查 | 中文 review 报告、风险与合并建议 |
 
@@ -212,6 +212,8 @@ $natural-writing 把这份初稿改得自然一点。
 **产出效果**：本地自包含 HTML 报告，保留统计、语义 facets、跨工具对比和阶段性建议，可选提取历史知识、分析 Agent 基建效果；支持复用已准备证据，避免重复抽取。
 
 **依赖与边界**：需要 Python 3；只读本地会话记录，报告会包含项目路径和会话摘要，分享前需要自行检查敏感信息。
+
+按窗口内活动统计长期会话，支持归档与压缩记录；知识经验盘点可独立输出 HTML、Markdown、JSON，阅读报告沿用原样式。
 
 详情：[README](skills/insights-aggregator/README.md) / [SKILL.md](skills/insights-aggregator/SKILL.md)
 

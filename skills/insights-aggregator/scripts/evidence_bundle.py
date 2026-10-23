@@ -58,6 +58,7 @@ def load_bundle(path, empty_group, parse_iso):
     return {
         "generated_at": bundle["generated_at"],
         "window": bundle.get("window") or {},
+        "display_timezone": bundle.get("display_timezone"),
         "input_mode": "evidence_bundle",
         "selection": selection,
         "sources": sources,
@@ -67,6 +68,6 @@ def load_bundle(path, empty_group, parse_iso):
         "by_agent": {agent: group(values) for agent, values in metrics["by_agent"].items()},
         "cross_tool": cross if cross is not None else cross_default,
         "cross_tool_metrics_available": cross is not None,
-        "internal_sessions_excluded": None,
-        "internal_model_effort": {},
+        "internal_sessions_excluded": bundle.get("internal_sessions_excluded"),
+        "internal_model_effort": bundle.get("internal_model_effort") or {},
     }
