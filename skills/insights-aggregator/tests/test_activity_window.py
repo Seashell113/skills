@@ -109,6 +109,27 @@ class ActivityWindowTests(unittest.TestCase):
         self.collect()
         self.assertEqual(self.aggregate()['combined']['total_sessions'], 0)
 
+    def test_fork_cache_tracks_parent_dependency_without_child_changes(self):
+        parent = self.path.with_name(f'rollout-parent-{B}.jsonl')
+        copied = [context('parent-model', AS_OF, 'parent-native'),
+                  user('inherited', AS_OF, 'parent-native')]
+        parent.write_bytes(data([row('session_meta', {'id': B}, SINCE), *copied]))
+        self.path.write_bytes(data([row('session_meta', {'id': A, 'forked_from_id': B}, SINCE),
+                                    *copied, user('new task', AS_OF, 'child-native')]))
+        self.collect()
+        self.assertEqual(self.meta()['user_message_count'], 1)
+        self.assertEqual(self.collect()['from_cache'], 2)
+        with parent.open('ab') as handle:
+            handle.write(data([user('parent later activity', AS_OF, 'parent-later')]))
+        self.assertEqual(self.collect()['parsed_now'], 2)
+        self.assertEqual(self.meta()['user_message_count'], 1)
+        parent.unlink()
+        summary = self.collect()
+        self.assertEqual(summary['parsed_now'], 1)
+        self.assertEqual(self.meta()['source_audit']['fork_history']['status'],
+                         'parent_source_unavailable')
+        self.assertEqual(summary['codex_ownership']['fork_lineage_unverified'][0]['session_id'], A)
+
     def test_window_cache_recompute_and_aggregate_does_not_reuse_wrong_window(self):
         self.collect()
         self.assertEqual(self.collect()['from_cache'], 1)

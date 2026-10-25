@@ -34,10 +34,10 @@ import sys
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from codex_segments import read_owned_codex_stream
+from codex_segments import fork_parent_source, read_owned_codex_stream
 
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 INTERRUPT_MARKER = "[Request interrupted by user"
 # Claude Code 把 /command 的本地执行记录也写成 user 消息，不是人类输入
 CLAUDE_NOISE_RE = re.compile(
@@ -481,7 +481,7 @@ def _deduplicate_codex_users(events):
     return result
 
 
-def codex_parse(path, session_id, byte_limit=None, expected_sha256=None):
+def codex_parse(path, session_id, byte_limit=None, expected_sha256=None, lineage_sources=None):
     events, project_path, source = [], "", None
     start, thread_source = None, None
     call_cmds = {}  # call_id → 命令字符串，用于报错豁免判断
@@ -492,8 +492,12 @@ def codex_parse(path, session_id, byte_limit=None, expected_sha256=None):
         session_id,
         byte_limit=byte_limit,
         expected_sha256=expected_sha256,
+        lineage_sources=lineage_sources,
     )
     for record in owned.records:
+        baseline = owned.audit.get("token_baselines", {}).get(str(record.line_number))
+        if baseline:
+            previous_usage = baseline
         o = record.row
         t, p = o.get("type"), o.get("payload") or {}
         ts = parse_ts(o.get("timestamp"))
@@ -912,6 +916,7 @@ def main():
         args.codex_dir, args.codex_snapshot_manifest
     )
     scanned.sort(key=lambda x: -x["mtime"])
+    lineage_sources = {item["session_id"]: item for item in scanned if item["agent"] == "codex"}
 
     metas = []
     loaded = skipped_cache = failed = 0
@@ -924,6 +929,8 @@ def main():
             try:
                 with open(meta_path, encoding="utf-8") as fh:
                     cached = json.load(fh)
+                old_fork = (cached.get("source_audit") or {}).get("fork_history") or {}
+                parent_source = fork_parent_source(lineage_sources.get(old_fork.get("parent_session_id")))
                 if (cached.get("analysis_window") != window
                         or cached.get("display_timezone") != display_timezone
                         or cached.get("schema_version") != SCHEMA_VERSION
@@ -931,6 +938,7 @@ def main():
                         or cached.get("src_mtime_ns") != info.get("mtime_ns")
                         or cached.get("src_size") != info.get("size")
                         or cached.get("source_snapshot_id") != info.get("source_snapshot_id")
+                        or old_fork.get("parent_source") != parent_source
                         or (
                             info.get("sha256")
                             and cached.get("src_sha256") != info.get("sha256")
@@ -954,6 +962,7 @@ def main():
                     info["session_id"],
                     byte_limit=info.get("byte_length"),
                     expected_sha256=info.get("sha256"),
+                    lineage_sources=lineage_sources,
                 )
         except (OSError, UnicodeDecodeError, ValueError) as exc:
             s = None
@@ -1026,7 +1035,7 @@ def main():
                 s = claude_parse(src["path"], m["session_id"])
             else:
                 s = codex_parse(src["path"], m["session_id"], byte_limit=src.get("byte_length"),
-                                expected_sha256=src.get("sha256"))
+                                expected_sha256=src.get("sha256"), lineage_sources=lineage_sources)
         except (OSError, UnicodeDecodeError, ValueError):
             s = None
         if s is None:
@@ -1081,6 +1090,15 @@ def main():
             None,
         ),
         "codex_ownership": {
+            "fork_lineage_unverified": [
+                {"session_id": m["session_id"], "is_internal": m.get("is_internal"),
+                 "user_message_count": m["user_message_count"],
+                 "has_window_activity": m.get("has_window_activity"),
+                 "status": m["source_audit"]["fork_history"]["status"]}
+                for m in metas if m.get("agent") == "codex"
+                and (m.get("source_audit") or {}).get("fork_history")
+                and m["source_audit"]["fork_history"]["status"] != "native_anchored_exact_prefix"
+            ],
             "files_with_imported_history": sum(
                 bool(audit.get("imported_session_ids")) for audit in codex_audits
             ),

@@ -125,6 +125,102 @@ def _call_link_audit(records: list[JsonlRecord]) -> dict[str, Any]:
     }
 
 
+def fork_parent_source(source: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The exact parent dependency used for cache invalidation and audit."""
+    if not source:
+        return None
+    return {key: source.get(key) for key in (
+        "session_id", "path", "byte_length", "mtime_ns", "sha256", "source_snapshot_id"
+    )}
+
+
+def _fork_row(row: dict[str, Any]) -> dict[str, Any]:
+    # Fork materialization rewrites these transport fields, including thread_id.
+    # Every remaining field must agree exactly; there is no text similarity test.
+    normalized = {key: value for key, value in row.items() if key != "timestamp"}
+    payload = dict(row.get("payload") or {})
+    if row.get("type") == "event_msg":
+        payload.pop("thread_id", None)
+        payload.pop("completed_at_ms", None)
+    normalized["payload"] = payload
+    return normalized
+
+
+def _fork_prefix(records, parent_id, parent_source):
+    """Prove an ordered copied prefix against a frozen parent, with native IDs.
+
+    Stop at the first unequal/invalid record. Matching message text alone cannot
+    establish inheritance: at least one native turn/item/call ID must also match.
+    The entire parent prefix is hashed even when comparison stops early.
+    """
+    audit = {"parent_session_id": parent_id,
+             "parent_source": fork_parent_source(parent_source),
+             "status": "parent_source_unavailable", "matched_lines": 0}
+    if not parent_source:
+        return [], audit
+    path = Path(parent_source["path"])
+    limit = parent_source.get("byte_length")
+    limit = path.stat().st_size if limit is None else int(limit)
+    if limit < 0 or path.stat().st_size < limit:
+        raise ValueError("fork parent source shorter than frozen cutoff")
+    expected_sha = parent_source.get("sha256")
+    offset = parent_line = 0
+    digest = hashlib.sha256()
+    matched, anchors = [], []
+    comparing = True
+    parent_valid = False
+    with _source_jsonl(path, limit, expected_sha) as (handle, jsonl_limit, physical_sha):
+        while offset < jsonl_limit:
+            chunk = handle.readline(jsonl_limit - offset)
+            if not chunk:
+                raise ValueError("unable to read frozen fork parent cutoff")
+            offset += len(chunk)
+            digest.update(chunk)
+            parent_line += 1
+            if not comparing:
+                continue
+            try:
+                row = json.loads(chunk)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                comparing = False
+                continue
+            if parent_line == 1:
+                parent_valid = (isinstance(row, dict) and row.get("type") == "session_meta"
+                                and (row.get("payload") or {}).get("id",
+                                    (row.get("payload") or {}).get("session_id")) == parent_id)
+                comparing = parent_valid
+                continue
+            child_index = parent_line - 1
+            if (child_index >= len(records)
+                    or records[child_index].line_number != parent_line
+                    or not isinstance(row, dict)
+                    or _fork_row(records[child_index].row) != _fork_row(row)):
+                comparing = False
+                continue
+            matched.append(child_index)
+            payload = row.get("payload") or {}
+            native_id = payload.get("turn_id") or payload.get("call_id") or (
+                payload.get("id") if row.get("type") == "response_item" else None)
+            if native_id and (not anchors or anchors[-1]["native_id"] != native_id):
+                # Keep only endpoint evidence rather than a large ID index.
+                anchor = {"line": parent_line, "native_id": str(native_id)}
+                anchors = [anchors[0], anchor] if anchors else [anchor]
+    actual_sha = physical_sha or digest.hexdigest()
+    if expected_sha and actual_sha != expected_sha:
+        raise ValueError("fork parent snapshot SHA-256 mismatch")
+    audit.update(parent_sha256=actual_sha, parent_identity_valid=parent_valid)
+    if not parent_valid:
+        audit["status"] = "parent_identity_mismatch"
+    elif not matched or not anchors:
+        audit["status"] = "no_native_anchored_prefix_proven"
+    else:
+        audit.update(status="native_anchored_exact_prefix", matched_lines=len(matched),
+                     start_line=records[matched[0]].line_number,
+                     end_line=records[matched[-1]].line_number, native_anchors=anchors)
+        return matched, audit
+    return [], audit
+
+
 @contextmanager
 def _source_jsonl(path, limit, expected_sha256):
     """Hash the physical frozen prefix; decompress zstd only into temporary files."""
@@ -170,6 +266,7 @@ def read_owned_codex_stream(
     *,
     byte_limit: int | None = None,
     expected_sha256: str | None = None,
+    lineage_sources: dict[str, dict[str, Any]] | None = None,
 ) -> OwnedCodexStream:
     """Return valid rows owned by ``expected_session_id`` plus an audit record.
 
@@ -278,6 +375,15 @@ def read_owned_codex_stream(
                 owners[index] = expected_session_id
 
     identity_valid = first_meta_session_id == expected_session_id
+    fork_history = None
+    parent_id = physical_meta.get("forked_from_id")
+    # Older foreign-session_meta layouts already have explicit ownership. Never
+    # replace their established segmentation with a prefix inference.
+    if identity_valid and parent_id and not foreign_indexes:
+        copied_indexes, fork_history = _fork_prefix(
+            records, parent_id, (lineage_sources or {}).get(parent_id))
+        for index in copied_indexes:
+            owners[index] = parent_id
     owned_records = (
         [
             record
@@ -310,6 +416,21 @@ def read_owned_codex_stream(
     else:
         ownership_status = "owned_single_session"
 
+    # Carry the last excluded cumulative token snapshot into each owned tail.
+    # Otherwise its first total counter can charge copied history a second time.
+    token_baselines = {}
+    excluded_total = None
+    prior_owner = None
+    for record, owner in zip(records, owners):
+        payload = record.row.get("payload") or {}
+        if owner != expected_session_id:
+            if record.row.get("type") == "event_msg" and payload.get("type") == "token_count":
+                excluded_total = (payload.get("info") or {}).get("total_token_usage") or excluded_total
+        elif prior_owner != expected_session_id and excluded_total:
+            token_baselines[str(record.line_number)] = excluded_total
+            excluded_total = None
+        prior_owner = owner
+
     link_audit = _call_link_audit(owned_records)
     audit = {
         "expected_session_id": expected_session_id,
@@ -328,6 +449,8 @@ def read_owned_codex_stream(
         "owned_non_meta_lines": non_meta_owned,
         "owner_leakage_lines": 0,
         "imported_session_ids": imported_ids,
+        "fork_history": fork_history,
+        "token_baselines": token_baselines,
         "segments": _compress_segments(
             records, owners, expected_session_id, recovered_start
         ),

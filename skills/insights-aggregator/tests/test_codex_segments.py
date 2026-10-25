@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sys
 import tempfile
 import unittest
@@ -227,6 +228,103 @@ class CodexSegmentTests(unittest.TestCase):
 
         self.assertEqual(parsed.audit["invalid_json_lines"], 1)
         self.assertEqual(parsed.audit["orphan_valid_lines"], 1)
+
+    def fork_fixture(self):
+        inherited = [
+            row("event_msg", {"type": "task_started", "turn_id": "native-parent-turn"}),
+            row("event_msg", {"type": "item_completed", "thread_id": B,
+                "turn_id": "native-parent-turn", "completed_at_ms": 1,
+                "item": {"type": "UserMessage", "id": "parent-user",
+                         "content": [{"type": "text", "text": "repeat"}]}}),
+            row("event_msg", {"type": "token_count", "info": {
+                "total_token_usage": {"input_tokens": 100, "cached_input_tokens": 20,
+                                      "output_tokens": 30}}}),
+        ]
+        copied = json.loads(json.dumps(inherited))
+        for record in copied:
+            record["timestamp"] = "2026-07-02T00:00:00Z"
+            if record["payload"].get("type") == "item_completed":
+                record["payload"].update(thread_id=A, completed_at_ms=999)
+        temp, child = self.write_fixture([
+            row("session_meta", {"id": A, "forked_from_id": B}), *copied,
+            row("event_msg", {"type": "task_started", "turn_id": "native-child-turn"}),
+            row("event_msg", {"type": "user_message", "message": "repeat"}),
+            row("event_msg", {"type": "user_message", "message": "repeat"}),
+            row("event_msg", {"type": "token_count", "info": {
+                "total_token_usage": {"input_tokens": 150, "cached_input_tokens": 30,
+                                      "output_tokens": 40},
+                "last_token_usage": {"input_tokens": 150, "output_tokens": 40}}}),
+        ])
+        self.addCleanup(temp.cleanup)
+        parent = child.with_name(f"rollout-parent-{B}.jsonl")
+        parent.write_text("".join(json.dumps(record) + "\n" for record in [
+            row("session_meta", {"id": B}), *inherited]), encoding="utf-8")
+        raw = parent.read_bytes()
+        sources = {B: {"session_id": B, "path": str(parent), "byte_length": len(raw),
+                       "sha256": hashlib.sha256(raw).hexdigest()}}
+        return child, parent, sources
+
+    def test_retimestamped_fork_prefix_uses_native_anchored_exact_parent(self):
+        child, parent, sources = self.fork_fixture()
+        stream = read_owned_codex_stream(child, A, lineage_sources=sources)
+        self.assertEqual(stream.audit["fork_history"]["end_line"], 4)
+        self.assertEqual(stream.audit["imported_session_ids"], [B])
+        self.assertEqual([r.line_number for r in stream.records], [1, 5, 6, 7, 8])
+        parsed = codex_parse(child, A, lineage_sources=sources)
+        self.assertEqual([ev["text"] for ev in parsed.events if ev["kind"] == "user"],
+                         ["repeat", "repeat"])
+        token = next(ev for ev in parsed.events if ev["kind"] == "tokens")
+        self.assertEqual((token["tokens_in"], token["tokens_out"]), (40, 10))
+
+    def test_fork_parent_frozen_prefix_survives_append(self):
+        child, parent, sources = self.fork_fixture()
+        before = read_owned_codex_stream(child, A, lineage_sources=sources)
+        with parent.open("a") as handle:
+            handle.write(json.dumps(row("event_msg", {"type": "task_started",
+                                                       "turn_id": "native-child-turn"})) + "\n")
+        after = read_owned_codex_stream(child, A, lineage_sources=sources)
+        self.assertEqual(before, after)
+
+    def test_fork_parent_hash_mismatch_fails_closed(self):
+        child, parent, sources = self.fork_fixture()
+        sources[B]["sha256"] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "parent snapshot SHA-256"):
+            read_owned_codex_stream(child, A, lineage_sources=sources)
+
+    def test_fork_missing_parent_retains_events_and_reports_unverified(self):
+        child, parent, sources = self.fork_fixture()
+        stream = read_owned_codex_stream(child, A)
+        self.assertEqual(len(stream.records), 8)
+        self.assertEqual(stream.audit["fork_history"]["status"], "parent_source_unavailable")
+
+    def test_matching_text_without_native_id_never_proves_inheritance(self):
+        temp, child = self.write_fixture([
+            row("session_meta", {"id": A, "forked_from_id": B}),
+            row("event_msg", {"type": "user_message", "message": "repeat"})])
+        self.addCleanup(temp.cleanup)
+        parent = child.with_name("parent.jsonl")
+        parent.write_text("".join(json.dumps(record) + "\n" for record in [
+            row("session_meta", {"id": B}),
+            row("event_msg", {"type": "user_message", "message": "repeat"})]))
+        stream = read_owned_codex_stream(child, A, lineage_sources={B: {"path": str(parent)}})
+        self.assertEqual(len(stream.records), 2)
+        self.assertEqual(stream.audit["fork_history"]["status"], "no_native_anchored_prefix_proven")
+
+    def test_explicit_foreign_history_supplies_token_baseline_to_owned_tail(self):
+        temp, child = self.write_fixture([
+            row("session_meta", {"id": A, "forked_from_id": B}),
+            row("session_meta", {"id": B}),
+            row("event_msg", {"type": "token_count", "info": {
+                "total_token_usage": {"input_tokens": 100, "output_tokens": 30}}}),
+            row("session_meta", {"id": A}),
+            row("event_msg", {"type": "token_count", "info": {
+                "total_token_usage": {"input_tokens": 150, "output_tokens": 40}}}),
+        ])
+        self.addCleanup(temp.cleanup)
+        parsed = codex_parse(child, A)
+        token = next(ev for ev in parsed.events if ev["kind"] == "tokens")
+        self.assertEqual((token["tokens_in"], token["tokens_out"]), (50, 10))
+        self.assertIsNone(parsed.source_audit["fork_history"])
 
 
 if __name__ == "__main__":

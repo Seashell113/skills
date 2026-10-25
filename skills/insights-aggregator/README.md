@@ -82,6 +82,8 @@ npx skills add https://github.com/Seashell113/skills.git -g --skill insights-agg
 
 Codex 的一个物理 rollout 可能包含继承的父会话历史。采集器会以文件名和首条 `session_meta` 校验物理会话，只将 owned live 事件计入指标；需要固定重跑口径时，可传入带 byte cutoff 与 SHA-256 的 `--codex-snapshot-manifest`。
 
-用户输入同时支持旧 `event_msg/user_message` 与新 `item_completed/UserMessage`，保留消息数和 native turn 模型配置数的区别。格式修复将 SessionMeta schema 升至 14；首次后续正常采集会在原窗口及数量上限内重新排队旧 Codex facet，不触发采集器自行调用模型，不使 Claude facet 因此失效。字段和本地回归命令见 [Codex 格式说明](reference/codex-session-schema.md)。
+用户输入同时支持旧 `event_msg/user_message` 与新 `item_completed/UserMessage`，保留消息数和 native turn 模型配置数的区别。格式修复将 SessionMeta schema 升至 15；首次后续正常采集会在原窗口及数量上限内重新排队旧 Codex facet，不触发采集器自行调用模型，不使 Claude facet 因此失效。字段和本地回归命令见 [Codex 格式说明](reference/codex-session-schema.md)。
 
 旧 Codex facet 未完成刷新时，聚合报告保留有效会话统计，但不会消费过期摘要或用旧 warmup 分类排除会话；旧缓存文件保持原样。
+
+Codex fork 若未保留 foreign `session_meta`，采集器使用同次扫描或 manifest 中的父源，校验冻结 SHA-256 后逐行比较有 native turn/item/call ID 锚点的连续前缀；仅忽略 fork 重写的时间与 event thread 字段。匹配历史排除后保留累计 token 基线。父源缺失或无法证明前缀时保留原事件，并在 `source_audit.fork_history` 与 collect 的 `codex_ownership.fork_lineage_unverified` 明示未核实；这不证明存在复制历史，也不应自动清零正常 fork/subagent。发现可疑根会话时，须说明统计影响或将其单列未知，不能把 owner_leakage_lines=0 当完整归属已证实。manifest 之外的父源不会被自动读取。

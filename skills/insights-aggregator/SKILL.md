@@ -104,7 +104,7 @@ python3 {skill_dir}/scripts/render.py --knowledge-inventory /private/path/knowle
 
 - SessionMeta 按 `(agent, session_id)` 缓存并记录 `analysis_window`；不同窗口重算，不复用全生命周期指标。源文件的 mtime、mtime_ns、size、snapshot id 或 SHA-256 变化时自动重算。
 - facet 按 `(agent, session_id)` 缓存。会话 resume 后大幅续写（消息 +5 条以上，依据 `_user_message_count` 戳）会重提；Codex 的 `_parser_schema_version` 缺失或不同也会重新排队，避免格式修复后继续使用漏读用户消息的旧结论。Claude facet 不因 Codex 解析升级而失效；两种工具的 facet 均需匹配 `_analysis_window`。旧无窗口戳的 facet 仅在原会话完整首尾均落在窗口内时兼容复用。
-- 解析升级后的首次正常采集可能重算 meta，并在已授权窗口及 `--max-facets` 上限内重提 Codex facet；采集器只生成待提取清单，不自行调用模型或覆盖旧 facet。当前 SessionMeta schema 为 14。
+- 解析升级后的首次正常采集可能重算 meta，并在已授权窗口及 `--max-facets` 上限内重提 Codex facet；采集器只生成待提取清单，不自行调用模型或覆盖旧 facet。当前 SessionMeta schema 为 15。
 - 聚合时也校验 Codex facet 的解析版本；过期语义不参与摘要、结果统计或 warmup 排除，当前有效 meta 统计仍保留。提取失败或数量上限截断时同样生效，不删除旧文件、不扩大重算范围；`stale_codex_facets_ignored` 表示本次保留的根会话中跳过旧语义的数量。
 - 同窗口重复运行可复用缓存；不同窗口不把旧语义直接当作当前窗口结果。已有可靠分析也可通过 evidence bundle 复用，单独声明分析范围。强制全量重提：删 `~/.agent-insights/cache/facets/`。
 
@@ -146,3 +146,5 @@ python3 {skill_dir}/scripts/render.py --knowledge-inventory /private/path/knowle
 ## 扩展新工具适配器
 
 在 `collect.py` 中实现 `{tool}_scan()`（返回 agent/session_id/path/mtime/size）与 `{tool}_parse()`（解析为统一事件流：user / assistant_text / tool_use / tool_result / interrupt / tokens），并在 `CODEX_TOOL_CATEGORY` 旁补一张工具名→类别映射表，其余层零改动。详见 `reference/codex-session-schema.md` 的映射方法示范。
+
+Codex fork 若未保留 foreign `session_meta`，采集器使用同次扫描或 manifest 中的父源，校验冻结 SHA-256 后逐行比较有 native turn/item/call ID 锚点的连续前缀；仅忽略 fork 重写的时间与 event thread 字段。匹配历史排除后保留累计 token 基线。父源缺失或无法证明前缀时保留原事件，并在 `source_audit.fork_history` 与 collect 的 `codex_ownership.fork_lineage_unverified` 明示未核实；这不证明存在复制历史，也不应自动清零正常 fork/subagent。发现可疑根会话时，须说明统计影响或将其单列未知，不能把 owner_leakage_lines=0 当完整归属已证实。manifest 之外的父源不会被自动读取。
