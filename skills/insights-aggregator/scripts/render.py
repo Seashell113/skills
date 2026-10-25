@@ -211,7 +211,7 @@ def evidence_sections(ins, sources):
     if sources:
         cards = ''.join(f'<div class="project-area" id="{anchors[source["id"]]}"><div class="card-title">{esc(source["id"])} · {esc(source.get("title"))}</div>'
                         f'<div class="card-line">会话：{esc(source.get("session_id"))}</div>'
-                        f'<div class="card-line">{esc(source.get("locator"))}</div>'
+                        f'<details><summary class="card-line">原文定位</summary><div class="card-line">{esc(source.get("locator"))}</div></details>'
                         f'<div class="card-line">{esc(source.get("summary"))}</div></div>'
                         for i, source in enumerate(sources))
         sources_html = '<h2 id="section-sources">来源与核验入口</h2><div class="project-areas">' + cards + '</div>'
