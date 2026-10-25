@@ -281,7 +281,7 @@ def main():
                     (f"近 {window['days']} 天" if window.get("days") else "全部历史"))
 
     # ---- 顶部统计 ----
-    semantic_stat = ((metric(selection.get("direct_read_sessions")), "直接阅读任务")
+    semantic_stat = ((metric(selection.get("direct_read_sessions")), "直接阅读材料")
                      if evidence_mode and "direct_read_sessions" in selection else
                      (f"{metric(c['sessions_with_facets'])}/{metric(c['total_sessions'])}", "语义深析"))
     stats = [
@@ -299,14 +299,15 @@ def main():
     if evidence_mode:
         unknown_stats = [name for value, name in stats if value == "未知"]
         stats = [(value, name) for value, name in stats if value != "未知"]
-        scope_html = (f'<p class="section-intro">统计覆盖{"窗口内活跃会话" if full_statistics else "选中任务"}；'
-                      f'正文深入复盘其中 {metric(selection.get("direct_read_sessions"))} 个任务。</p>')
+        scope_html = (f'<p class="section-intro">统计覆盖 {metric(c["total_sessions"])} 个'
+                      f'{"窗口内活跃会话" if full_statistics else "选中会话"}；'
+                      f'正文深入阅读 {metric(selection.get("direct_read_sessions"))} 份会话材料。</p>')
         if selection.get("focus_note"):
             scope_html += '<p class="section-intro">' + esc(selection["focus_note"]) + '</p>'
         method_label = "分析范围与方法：" if selection.get("semantic_metrics_scope") == "window" else "选样方法："
         method_html = ('<div class="narrative"><p>' + method_label + esc(selection.get("method"))
                        + '</p><p>覆盖与限制：' + esc(selection.get("limits"))
-                       + '</p><p>仅展示已提供的统计；未知不代表零。直接阅读任务不计作 facet 提取。</p>'
+                       + '</p><p>仅展示已提供的统计；未知不代表零。直接阅读材料不计作 facet 提取。</p>'
                        + ('<p>未采集：' + esc('、'.join(unknown_stats)) + '。</p>' if unknown_stats else '')
                        + (f'<p>{esc(selection["scope_note"])}</p>' if selection.get("scope_note") else '') + '</div>')
     if args.knowledge_inventory:

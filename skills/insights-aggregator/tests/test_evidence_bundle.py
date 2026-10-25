@@ -90,7 +90,7 @@ class EvidenceBundleTests(unittest.TestCase):
             self.assertIn("Original work area", report)
             self.assertIn("New knowledge", report)
             self.assertIn("Actual mechanism", report)
-            self.assertIn("直接阅读任务", report)
+            self.assertIn("直接阅读材料", report)
             self.assertNotIn("0/1", report)
             self.assertIn("用户消息", report)
             self.assertNotIn('id="section-model-effort"', report)
@@ -169,7 +169,8 @@ class EvidenceBundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             bundle = example()
-            bundle["selection"].update(statistics_scope="window", semantic_metrics_scope="sample")
+            bundle["selection"].update(statistics_scope="window", semantic_metrics_scope="window",
+                                       direct_read_sessions=21)
             bundle["display_timezone"] = {"name": "Asia/Shanghai", "label": "CST", "utc_offset": "+0800"}
             for group in [bundle["metrics"]["combined"], bundle["metrics"]["by_agent"]["codex"]]:
                 group.update(total_sessions=20, tool_wrapped_calls=5, languages={"Python": 1},
@@ -179,7 +180,7 @@ class EvidenceBundleTests(unittest.TestCase):
             subprocess.run([sys.executable, str(SCRIPTS / "aggregate.py"), "--evidence-bundle", str(path),
                             "--home", str(root)], check=True, capture_output=True)
             inventory = root / "inventory-input.json"
-            inventory.write_text(json.dumps({"schema_version": 1, "scope": {"sessions_read": 1}, "items": [
+            inventory.write_text(json.dumps({"schema_version": 1, "scope": {"sessions_read": 21}, "items": [
                 {"id": "K1", "title": "Point", "summary": "Bounded", "status": "candidate",
                  "evidence": [{"source_id": "S1", "locator": "L2"}]}]}))
             out = root / "report.html"
@@ -188,7 +189,10 @@ class EvidenceBundleTests(unittest.TestCase):
             report = out.read_text()
             stats = re.search(r'<div class="stats-row">(.*?)</div>\s*<p', report, re.S).group(1)
             self.assertIn("活跃会话", stats)
-            self.assertIn("直接阅读任务", stats)
+            self.assertIn("直接阅读材料", stats)
+            self.assertIn("统计覆盖 20 个窗口内活跃会话；正文深入阅读 21 份会话材料", report)
+            self.assertIn("分析范围与方法：", report)
+            self.assertNotIn("复盘其中", report)
             self.assertNotIn("提交命令记录", stats)
             self.assertNotIn("涉及语言", report)
             self.assertIn("Asia/Shanghai", report)
