@@ -130,7 +130,8 @@ def fork_parent_source(source: dict[str, Any] | None) -> dict[str, Any] | None:
     if not source:
         return None
     return {key: source.get(key) for key in (
-        "session_id", "path", "byte_length", "mtime_ns", "sha256", "source_snapshot_id"
+        "session_id", "path", "byte_length", "mtime_ns", "sha256", "source_snapshot_id",
+        "recovery_source"
     )}
 
 
@@ -159,17 +160,15 @@ def _fork_prefix(records, parent_id, parent_source):
     if not parent_source:
         return [], audit
     path = Path(parent_source["path"])
-    limit = parent_source.get("byte_length")
-    limit = path.stat().st_size if limit is None else int(limit)
-    if limit < 0 or path.stat().st_size < limit:
-        raise ValueError("fork parent source shorter than frozen cutoff")
+    recovery = parent_source.get("recovery_source")
+    limit = _frozen_limit(path, parent_source.get("byte_length"), recovery)
     expected_sha = parent_source.get("sha256")
     offset = parent_line = 0
     digest = hashlib.sha256()
     matched, anchors = [], []
     comparing = True
     parent_valid = False
-    with _source_jsonl(path, limit, expected_sha) as (handle, jsonl_limit, physical_sha):
+    with _source_jsonl(path, limit, expected_sha, recovery) as (handle, jsonl_limit, physical_sha):
         while offset < jsonl_limit:
             chunk = handle.readline(jsonl_limit - offset)
             if not chunk:
@@ -222,8 +221,37 @@ def _fork_prefix(records, parent_id, parent_source):
 
 
 @contextmanager
-def _source_jsonl(path, limit, expected_sha256):
-    """Hash the physical frozen prefix; decompress zstd only into temporary files."""
+def _source_jsonl(path, limit, expected_sha256, recovery=None):
+    """Read a frozen source; migrated JSONL keeps its original logical hash.
+
+    A recovery entry separately freezes the complete compressed physical file.
+    Decode it fully (including zstd integrity checks), then expose only the old
+    JSONL prefix after checking the original manifest hash. Never guess a path.
+    """
+    if recovery is not None:
+        if not expected_sha256:
+            raise ValueError("recovery requires the original frozen SHA-256")
+        physical = Path(recovery["path"])
+        physical_limit = int(recovery["byte_length"])
+        if physical.stat().st_size != physical_limit:
+            raise ValueError("compressed recovery source size changed")
+        with _source_jsonl(physical, physical_limit, recovery["sha256"]) as (decoded, length, _):
+            if length < limit:
+                raise ValueError("decoded recovery source shorter than frozen cutoff")
+            digest = hashlib.sha256()
+            remaining = limit
+            while remaining:
+                chunk = decoded.read(min(1024 * 1024, remaining))
+                if not chunk:
+                    raise ValueError("unable to read decoded frozen cutoff")
+                digest.update(chunk)
+                remaining -= len(chunk)
+            actual = digest.hexdigest()
+            if actual != expected_sha256:
+                raise ValueError(f"recovered snapshot SHA-256 mismatch: expected={expected_sha256}, actual={actual}")
+            decoded.seek(0)
+            yield decoded, limit, actual
+        return
     compressed = str(path).endswith(".zst")
     if not compressed:
         with path.open("rb") as source:
@@ -260,6 +288,83 @@ def _source_jsonl(path, limit, expected_sha256):
             yield decoded, decoded_length, actual_sha256
 
 
+def _frozen_limit(path, byte_limit, recovery=None):
+    if recovery is not None:
+        if byte_limit is None:
+            raise ValueError("recovery requires the original frozen byte_length")
+        limit = int(byte_limit)
+    else:
+        file_size = path.stat().st_size
+        limit = file_size if byte_limit is None else int(byte_limit)
+        if file_size < limit:
+            raise ValueError(f"source shorter than frozen cutoff: current={file_size}, cutoff={limit}")
+    if limit < 0:
+        raise ValueError("byte_limit must be non-negative")
+    return limit
+
+
+RECOVERY_IDENTITY = ("session_id", "path", "byte_length", "sha256")
+
+
+def load_snapshot_sources(manifest_path, recovery_map=None):
+    """Load only manifest members, optionally resolving authenticated migrations.
+
+    The original path takes precedence when it still exists, including when its
+    bytes are invalid: a recovery map is not a fallback for a bad original hash.
+    """
+    manifest_bytes = Path(manifest_path).read_bytes()
+    manifest = json.loads(manifest_bytes)
+    files = manifest.get("files") or []
+    identities = {item["session_id"]: item for item in files}
+    if len(identities) != len(files):
+        raise ValueError("duplicate session_id in snapshot manifest")
+    recoveries = {}
+    if recovery_map:
+        mapping = json.loads(Path(recovery_map).read_text(encoding="utf-8"))
+        if (mapping.get("schema_version") != 1
+                or mapping.get("snapshot_id") != manifest.get("snapshot_id")
+                or mapping.get("manifest_sha256") != hashlib.sha256(manifest_bytes).hexdigest()):
+            raise ValueError("recovery map snapshot identity mismatch")
+        if mapping.get("failures"):
+            raise ValueError("recovery map contains failed sources; resolve before replay")
+        for entry in mapping.get("files") or []:
+            original = entry["original"]
+            sid = original["session_id"]
+            expected = identities.get(sid)
+            if not expected or any(original.get(k) != expected.get(k) for k in RECOVERY_IDENTITY):
+                raise ValueError("recovery map original identity mismatch")
+            if sid in recoveries:
+                raise ValueError("duplicate recovery map session_id")
+            compressed = entry["compressed"]
+            if not str(compressed.get("path", "")).endswith(".jsonl.zst") or not compressed.get("sha256"):
+                raise ValueError("recovery requires a frozen .jsonl.zst physical identity")
+            recoveries[sid] = compressed
+    out = []
+    for item in files:
+        info = {"agent": "codex", **item,
+                "mtime": item.get("mtime_ns", 0) / 1_000_000_000,
+                "size": item.get("byte_length"),
+                "source_snapshot_id": manifest.get("snapshot_id")}
+        if not Path(item["path"]).exists() and item["session_id"] in recoveries:
+            info["recovery_source"] = recoveries[item["session_id"]]
+        out.append(info)
+    return out
+
+
+def read_owned_snapshot_session(sources, session_id):
+    """Packet/preflight entry: use the same frozen members for child and parent.
+
+    No filesystem scan or parent lookup outside this mapping is performed.
+    Unproven forks retain their events and expose fork_history.status for routing
+    to an unknown-attribution queue before any reading jobs are assembled.
+    """
+    source = sources[session_id]
+    return read_owned_codex_stream(
+        source["path"], session_id, byte_limit=source.get("byte_length"),
+        expected_sha256=source.get("sha256"), lineage_sources=sources,
+        recovery_source=source.get("recovery_source"))
+
+
 def read_owned_codex_stream(
     path: str | Path,
     expected_session_id: str,
@@ -267,6 +372,7 @@ def read_owned_codex_stream(
     byte_limit: int | None = None,
     expected_sha256: str | None = None,
     lineage_sources: dict[str, dict[str, Any]] | None = None,
+    recovery_source: dict[str, Any] | None = None,
 ) -> OwnedCodexStream:
     """Return valid rows owned by ``expected_session_id`` plus an audit record.
 
@@ -275,21 +381,14 @@ def read_owned_codex_stream(
     """
 
     source_path = Path(path)
-    file_size = source_path.stat().st_size
-    limit = file_size if byte_limit is None else int(byte_limit)
-    if limit < 0:
-        raise ValueError("byte_limit must be non-negative")
-    if file_size < limit:
-        raise ValueError(
-            f"source shorter than frozen cutoff: current={file_size}, cutoff={limit}"
-        )
+    limit = _frozen_limit(source_path, byte_limit, recovery_source)
 
     records: list[JsonlRecord] = []
     invalid_lines: list[dict[str, int]] = []
     offset = 0
     line_number = 0
     digest = hashlib.sha256()
-    with _source_jsonl(source_path, limit, expected_sha256) as (handle, jsonl_limit, physical_sha256):
+    with _source_jsonl(source_path, limit, expected_sha256, recovery_source) as (handle, jsonl_limit, physical_sha256):
         while offset < jsonl_limit:
             chunk = handle.readline(jsonl_limit - offset)
             if not chunk:
@@ -438,7 +537,8 @@ def read_owned_codex_stream(
         "identity_valid": identity_valid,
         "ownership_status": ownership_status,
         "byte_length": limit,
-        "offset_encoding": "decompressed_jsonl" if str(source_path).endswith(".zst") else "source_bytes",
+        "recovery_source": recovery_source,
+        "offset_encoding": "decompressed_jsonl" if recovery_source or str(source_path).endswith(".zst") else "source_bytes",
         "sha256": prefix_sha256,
         "line_count": line_number,
         "valid_json_lines": len(records),
