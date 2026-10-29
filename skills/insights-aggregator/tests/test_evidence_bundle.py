@@ -14,7 +14,7 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 from aggregate import aggregate_group, parse_iso, namespace_facet_sources, write_outputs, build_context
 from evidence_bundle import load_bundle
-from render import evidence_sections, metric, source_anchors, md_bold, TEXT_SOURCE_ANCHORS
+from render import evidence_sections, metric, source_anchors, md_bold, TEXT_SOURCE_ANCHORS, link_source_returns
 
 
 def example():
@@ -74,7 +74,9 @@ class EvidenceBundleTests(unittest.TestCase):
                 "tool_comparison": {"narrative": "MUST_NOT_RENDER_COMPARISON"},
                 "cross_tool_workflows": {"observed_patterns": [{"title": "MUST_NOT_RENDER_HANDOFF"}]},
                 "at_a_glance": {"quick_wins": "Next action", "tool_division": "MUST_NOT_RENDER_DIVISION"},
-                "suggestions": {"config_additions": [], "usage_patterns": [{"title": "Try one change"}]},
+                "friction_analysis": {"categories": [{"description": "Friction (S<script>)", "examples": ["Example (S<script>)"]}]},
+                "on_the_horizon": {"opportunities": [{"title": "Next", "whats_possible": "Future (S<script>)"}]},
+                "suggestions": {"config_additions": [], "usage_patterns": [{"title": "Try one change", "detail": "Pattern (S<script>)"}]},
                 "knowledge_findings": {"intro": "Knowledge", "findings": [{"title": "New knowledge",
                     "finding": "<script>alert(1)</script>", "status": "candidate", "evidence": ["S<script>"]}]},
                 "infrastructure_effectiveness": {"assessments": [{"name": "Actual mechanism",
@@ -103,6 +105,7 @@ class EvidenceBundleTests(unittest.TestCase):
             self.assertIn('href="#section-patterns"', report)
             self.assertNotIn('href="#section-features"', report)
             self.assertIn('href="#' + source_anchors(example()['sources'])['S<script>'] + '"', report)
+            self.assertEqual(report.count('href="#' + source_anchors(example()['sources'])['S<script>'] + '"'), 6)
             self.assertIn('&lt;script&gt;alert(1)&lt;/script&gt;', report)
             self.assertNotIn('<img src=x', report)
             self.assertEqual(out.stat().st_mode & 0o777, 0o600)
@@ -272,6 +275,67 @@ class EvidenceBundleTests(unittest.TestCase):
             for value in secondary:
                 self.assertIn(value, details)
                 self.assertNotIn(value, before)
+
+    def test_statistics_details_preserve_charts_values_and_input(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bundle = example()
+            group = bundle["metrics"]["combined"]
+            group.update({"models": {"synthetic-model": 42}, "reasoning_effort": {"max": 3},
+                          "tool_category_counts": {"orchestration": 13791}, "projects": {"example-project": 12},
+                          "goal_categories": {"fix_bug": 5}, "response_times": [12, 30], "message_hours": [9, 14]})
+            bundle["metrics"]["by_agent"]["codex"] = group.copy()
+            path = self.write_bundle(root, bundle)
+            subprocess.run([sys.executable, str(SCRIPTS / "aggregate.py"), "--evidence-bundle", str(path),
+                            "--home", str(root)], check=True, capture_output=True)
+            aggregate = root / "work/aggregated.json"
+            original = aggregate.read_bytes()
+            out = root / "report.html"
+            subprocess.run([sys.executable, str(SCRIPTS / "render.py"), "--home", str(root), "--out", str(out)],
+                           check=True, capture_output=True)
+            report = out.read_text()
+            self.assertEqual(aggregate.read_bytes(), original)
+            self.assertEqual(report.count('class="chart-card"'), 7)
+            self.assertIn('>13791</div>', report)
+            self.assertIn('>42</div>', report)
+            details = report.split('<summary>工具调用、记录量与使用节奏的统计细节</summary>', 1)[1].split('</details>', 1)[0]
+            self.assertIn('工具行为类别', details)
+            self.assertIn('助手活动至下次用户输入间隔', details)
+            self.assertIn('使用时段', details)
+            self.assertNotIn('主会话的模型配置记录', details)
+            self.assertIn('用于配置盘点', report)
+
+    def test_sources_fold_but_keep_all_evidence_and_exact_return_paths(self):
+        sources = [{"id": f"E{n}", "title": f"Source {n}", "summary": f"LONG_SUMMARY_{n}", "locator": f"L{n}"}
+                   for n in range(105)]
+        _, _, section = evidence_sections({}, sources)
+        document = link_source_returns('<a href="#source-E80">E80</a><a href="#source-E80">again</a>' + section)
+        self.assertEqual(document.count('<details class="project-area"'), 105)
+        self.assertNotIn('<details open', document)
+        self.assertIn('id="ref-source-E80-1"', document)
+        self.assertIn('id="ref-source-E80-2"', document)
+        self.assertIn('href="#ref-source-E80-1"', document)
+        self.assertIn('href="#ref-source-E80-2"', document)
+        self.assertNotIn('data-source-backlinks', document)
+        self.assertEqual(document.count('<details><summary class="card-line">原文定位</summary>'), 105)
+        source80 = document.split('id="source-E80"', 1)[1].split('</details></details>', 1)[0]
+        self.assertLess(source80.index('LONG_SUMMARY_80'), source80.index('原文定位'))
+        self.assertLess(source80.index('返回正文'), source80.index('原文定位'))
+        for n in range(105):
+            self.assertIn(f'LONG_SUMMARY_{n}', document)
+            self.assertIn(f'id="source-E{n}"', document)
+
+    def test_findings_link_only_explicit_existing_inventory_ids(self):
+        ins = {"knowledge_findings": {"findings": [
+            {"title": "New", "inventory_ids": ["C172", "C172", "missing"]},
+            {"title": "Legacy candidate", "candidate_id": "C241"},
+            {"title": "Old report without inventory"}]}}
+        knowledge, _, _ = evidence_sections(ins, [], {"C172", "C241"})
+        self.assertEqual(knowledge.count('href="knowledge-inventory.html#item-C172"'), 1)
+        self.assertIn('href="knowledge-inventory.html#item-C241"', knowledge)
+        self.assertNotIn('item-missing', knowledge)
+        no_inventory, _, _ = evidence_sections(ins, [])
+        self.assertNotIn('knowledge-inventory.html#', no_inventory)
 
     def test_css_is_byte_identical_to_original_renderer(self):
         source = (SCRIPTS / "render.py").read_text(encoding="utf-8")

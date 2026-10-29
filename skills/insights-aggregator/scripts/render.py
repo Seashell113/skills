@@ -12,7 +12,7 @@ import re
 import sys
 from datetime import date, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from knowledge_inventory import load_inventory, write_inventory
+from knowledge_inventory import load_inventory, write_inventory, item_anchor, ANCHOR_NAV_JS
 
 LABEL_MAP = {
     "orchestration": "编排调用（内部工具未展开）",
@@ -166,7 +166,7 @@ def source_anchors(sources):
             for source in sources}
 
 
-def evidence_sections(ins, sources):
+def evidence_sections(ins, sources, inventory_ids=None):
     anchors = source_anchors(sources)
 
     def references(ids):
@@ -203,19 +203,47 @@ def evidence_sections(ins, sources):
                      if key == "knowledge_findings" else
                      '<details><summary class="card-line">目的、替代成本与后续验证</summary>')
             extra += ''.join(details) + '</details>'
+            inventory_links = ""
+            if key == "knowledge_findings" and inventory_ids is not None:
+                selected = item.get("inventory_ids") or ([item["candidate_id"]] if item.get("candidate_id") else [])
+                if isinstance(selected, str):
+                    selected = [selected]
+                links = [f'<a href="knowledge-inventory.html#{item_anchor(item_id)}">{esc(item_id)}</a>'
+                         for item_id in dict.fromkeys(selected) if item_id in inventory_ids]
+                if links:
+                    inventory_links = '<div class="feedback-evidence">盘点条目：' + '、'.join(links) + '</div>'
             cards.append(f'<div class="pattern-card"><div class="card-title">{esc(item.get("title") or item.get("name"))}</div>'
-                         + expanded + references(item.get("evidence")) + extra + '</div>')
+                         + expanded + references(item.get("evidence")) + inventory_links + extra + '</div>')
         sections.append(f'<h2 id="{anchor}">{title}</h2><p class="section-intro">{esc(section.get("intro"))}</p>'
                         + '<div class="patterns-section">' + ''.join(cards) + '</div>')
     sources_html = ""
     if sources:
-        cards = ''.join(f'<div class="project-area" id="{anchors[source["id"]]}"><div class="card-title">{esc(source["id"])} · {esc(source.get("title"))}</div>'
+        cards = ''.join(f'<details class="project-area" id="{anchors[source["id"]]}" tabindex="-1">'
+                        f'<summary class="card-title">{esc(source["id"])} · {esc(source.get("title"))}</summary>'
                         f'<div class="card-line">会话：{esc(source.get("session_id"))}</div>'
-                        f'<details><summary class="card-line">原文定位</summary><div class="card-line">{esc(source.get("locator"))}</div></details>'
-                        f'<div class="card-line">{esc(source.get("summary"))}</div></div>'
-                        for i, source in enumerate(sources))
+                        f'<div class="card-line">{esc(source.get("summary"))}</div>'
+                        f'<div class="feedback-evidence" data-source-backlinks="{anchors[source["id"]]}"></div>'
+                        f'<details><summary class="card-line">原文定位</summary><div class="card-line">{esc(source.get("locator"))}</div></details></details>'
+                        for source in sources)
         sources_html = '<h2 id="section-sources">来源与核验入口</h2><div class="project-areas">' + cards + '</div>'
     return *sections, sources_html
+
+
+def link_source_returns(doc):
+    """Give every citation a return path, including source links in narrative prose."""
+    references = {}
+    def citation(match):
+        target = match.group(1)
+        refs = references.setdefault(target, [])
+        ref_id = "ref-" + target + "-" + str(len(refs) + 1)
+        refs.append(ref_id)
+        return f'<a href="#{target}" id="{ref_id}"' + match.group(2) + '>'
+    doc = re.sub(r'<a href="#(source-[^"]+)"([^>]*)>', citation, doc)
+    def backlinks(match):
+        refs = references.get(match.group(1), [])
+        return ('<div class="feedback-evidence">返回正文：' + '、'.join(
+            f'<a href="#{ref_id}">引用 {n}</a>' for n, ref_id in enumerate(refs, 1)) + '</div>') if refs else ''
+    return re.sub(r'<div class="feedback-evidence" data-source-backlinks="([^"]+)"></div>', backlinks, doc)
 
 
 def main():
@@ -225,6 +253,7 @@ def main():
     ap.add_argument("--knowledge-inventory", help="Separately render an evidence inventory JSON alongside the report")
     args = ap.parse_args()
     home = args.home
+    inventory = load_inventory(args.knowledge_inventory) if args.knowledge_inventory else None
 
     with open(os.path.join(home, "work/aggregated.json"), encoding="utf-8") as fh:
         agg = json.load(fh)
@@ -372,7 +401,7 @@ def main():
             tools = "".join(badge(t) for t in a.get("tools_used") or [])
             rows += (f'<div class="project-area"><div class="area-header"><span class="area-name">{esc(a.get("name"))}</span>'
                      f'<span>{tools}<span class="area-count">约 {esc(a.get("session_count"))} 个会话</span></span></div>'
-                     f'<div class="area-desc">{esc(a.get("description"))}</div></div>')
+                     f'<div class="area-desc">{md_bold(a.get("description"))}</div></div>')
         area_scope = ('以下按窗口内全部已读主会话的主要用途归类；同一事项可能跨多个会话，会话数不等于独立项目数。'
                       if selection.get("semantic_metrics_scope") == "window" else
                       '以下按直接阅读样本归纳，用于理解工作内容，不代表全部会话的主题占比。')
@@ -382,7 +411,7 @@ def main():
     style = ins.get("interaction_style") or {}
     style_html = ""
     if style.get("narrative"):
-        kp = f'<div class="key-insight"><strong>关键模式：</strong>{esc(style.get("key_pattern"))}</div>' if style.get("key_pattern") else ""
+        kp = f'<div class="key-insight"><strong>关键模式：</strong>{md_bold(style.get("key_pattern"))}</div>' if style.get("key_pattern") else ""
         style_html = f'<h2 id="section-usage">和Agent的协作方式</h2><div class="narrative">{md_html(style["narrative"])}{kp}</div>'
 
     # ---- 工具对比（跨工具）----
@@ -422,9 +451,9 @@ def main():
         intro = f'<p class="section-intro">{esc(fa.get("intro"))}</p>' if fa.get("intro") else ""
         cats = ""
         for cat in fa["categories"]:
-            ex = "".join(f"<li>{esc(e)}</li>" for e in cat.get("examples") or [])
+            ex = "".join(f"<li>{md_bold(e)}</li>" for e in cat.get("examples") or [])
             cats += (f'<div class="friction-category"><div class="friction-title">{esc(cat.get("category"))}</div>'
-                     f'<div class="friction-desc">{esc(cat.get("description"))}</div>'
+                     f'<div class="friction-desc">{md_bold(cat.get("description"))}</div>'
                      f'<ul class="friction-examples">{ex}</ul></div>')
         fr_html = f'<h2 id="section-friction">摩擦与症结</h2>{intro}<div class="friction-categories">{cats}</div>'
 
@@ -462,8 +491,8 @@ def main():
             for p in pats:
                 cp = copy_block(p["copyable_prompt"]) if p.get("copyable_prompt") else ""
                 pcards += (f'<div class="pattern-card"><div class="card-title">{esc(p.get("title"))}</div>'
-                           f'<div class="card-line">{esc(p.get("suggestion"))}</div>'
-                           f'<div class="card-line">{esc(p.get("detail"))}</div>{cp}</div>')
+                           f'<div class="card-line">{md_bold(p.get("suggestion"))}</div>'
+                           f'<div class="card-line">{md_bold(p.get("detail"))}</div>{cp}</div>')
             parts.append(f'<h2 id="section-patterns">用法进阶</h2><div class="patterns-section">{pcards}</div>')
         sg_html = "".join(parts)
 
@@ -510,10 +539,10 @@ def main():
         intro = f'<p class="section-intro">{esc(oh.get("intro"))}</p>' if oh.get("intro") else ""
         cards = ""
         for o in oh["opportunities"]:
-            tip = f'<div class="horizon-tip"><strong>如何开始：</strong>{esc(o.get("how_to_try"))}</div>' if o.get("how_to_try") else ""
+            tip = f'<div class="horizon-tip"><strong>如何开始：</strong>{md_bold(o.get("how_to_try"))}</div>' if o.get("how_to_try") else ""
             cp = copy_block(o["copyable_prompt"]) if o.get("copyable_prompt") else ""
             cards += (f'<div class="horizon-card"><div class="card-title">{esc(o.get("title"))}</div>'
-                      f'<div class="card-line">{esc(o.get("whats_possible"))}</div>{tip}{cp}</div>')
+                      f'<div class="card-line">{md_bold(o.get("whats_possible"))}</div>{tip}{cp}</div>')
         oh_html = f'<h2 id="section-horizon">未来可期</h2>{intro}<div class="horizon-section">{cards}</div>'
 
     # ---- 图表 ----
@@ -538,9 +567,10 @@ def main():
     if "claude-code" in by_agent:
         model_units += "Claude Code 的模型配置按助手消息计数。"
     model_effort_html = (f'<h2 id="section-model-effort">模型与推理强度</h2>'
-                         f'<div class="narrative"><p>{esc(root_mix)}</p><p>{esc(internal_mix)}</p>'
+                         f'<div class="narrative"><p>以下用于核对本期使用过的模型与推理配置，以及主会话中的混用情况。</p><p>{esc(root_mix)}</p>'
                          f'<p>{esc(model_units)}统计未关联任务阶段及结果，配置记录不能单独证明效果或解释返工原因。</p></div>'
-                         f'<div class="charts-row">{internal_charts_html}</div>')
+                         f'<details><summary>内部会话统计细节</summary><p class="section-intro">{esc(internal_mix)}</p>'
+                         f'<div class="charts-row">{internal_charts_html}</div></details>')
     charts = [
         ("各工具会话数", bar_chart(agent_sessions, "#0ea5e9", raw_labels=True)) if multi_tool else None,
         ("主会话的模型配置记录", bar_chart(c.get("models") or {}, "#14b8a6", 8, raw_labels=True)),
@@ -560,17 +590,22 @@ def main():
         charts = [item for item in charts if item and 'class="empty"' not in item[1]]
         if not any(c.get(key) for key in ("models", "reasoning_effort")) and not any(g.get("models") or g.get("reasoning_effort") for g in by_agent.values()) and not internal:
             model_effort_html = ""
-    charts_html = "".join(f'<div class="chart-card"><div class="chart-title">{esc(t)}</div>{b}</div>'
-                          for tb in charts if tb for t, b in [tb])
+    detail_titles = {"顶层工具调用类别", "工具行为类别", "涉及语言", "工具报错类别", "助手活动至下次用户输入间隔"}
+    def is_detail(chart):
+        return chart[0] in detail_titles or chart[0].startswith("使用时段")
+    def render_charts(entries):
+        return "".join(f'<div class="chart-card"><div class="chart-title">{esc(t)}</div>{b}</div>' for t, b in entries)
+    charts_html = render_charts([chart for chart in charts if chart and not is_detail(chart)])
+    chart_details_html = render_charts([chart for chart in charts if chart and is_detail(chart)])
 
     # ---- 趣味结尾 ----
     fe = ins.get("fun_ending") or {}
     fe_html = ""
     if fe.get("headline"):
-        det = f'<div class="fun-detail">{esc(fe.get("detail"))}</div>' if fe.get("detail") else ""
+        det = f'<div class="fun-detail">{md_bold(fe.get("detail"))}</div>' if fe.get("detail") else ""
         fe_html = f'<div class="fun-ending"><div class="fun-headline">{esc(fe["headline"])}</div>{det}</div>'
 
-    knowledge_html, infrastructure_html, sources_html = evidence_sections(ins, agg.get("sources") or [])
+    knowledge_html, infrastructure_html, sources_html = evidence_sections(ins, agg.get("sources") or [], {item["id"] for item in inventory["items"]} if inventory else None)
     if method_html:
         if sources_html:
             sources_html = sources_html.replace('来源与核验入口</h2>', '来源与方法</h2>' + method_html, 1)
@@ -578,8 +613,12 @@ def main():
             sources_html = '<h2 id="section-sources">来源与方法</h2>' + method_html
     chart_section_html = ('<h2 id="section-charts">数据全景</h2>'
                           + ('<p class="section-intro">任务目标来自阅读样本，其余图表来自窗口内记录。未重新提取全量 facet，任务结果、满意度与摩擦分布暂缺。</p>' if selection.get("semantic_metrics_scope") == "sample" else '')
-                          + '<div class="charts-row">'
-                          + charts_html + matrix_html + '</div>') if charts_html or matrix_html else ''
+                          + '<p class="section-intro">项目与任务目标图帮助回看工作重心；模型与强度图用于配置盘点。结果、满意度及摩擦图在有语义数据时呈现样本中的信号。</p>'
+                          + '<div class="charts-row">' + charts_html + matrix_html + '</div>'
+                          + ('<details><summary>工具调用、记录量与使用节奏的统计细节</summary>'
+                             '<p class="section-intro">用于核对记录构成与使用节奏；输入间隔不等于响应耗时或等待时长。编排调用未展开时，各工具类别的记录粒度不同。</p>'
+                             '<div class="charts-row">' + chart_details_html + '</div></details>' if chart_details_html else '')
+                          ) if charts_html or chart_details_html or matrix_html else ''
 
     section_nodes = [("section-tools", "工具总览", tool_table), ("section-work", "项目领域", areas_html),
                      ("section-usage", "协作风格", style_html), ("section-toolcmp", "分工对比", tc_html),
@@ -709,6 +748,8 @@ def main():
     }
     """
 
+    js += ANCHOR_NAV_JS
+
     agents_label = " + ".join(AGENT_BADGE.get(a, (a,))[0] for a in by_agent)
     report_title = (agents_label if not multi_tool else "Agent") + " 使用洞察报告"
     doc = f"""<!DOCTYPE html>
@@ -741,10 +782,11 @@ def main():
 <script>{js}</script>
 </div></body></html>"""
 
+    doc = link_source_returns(doc)
+
     out = args.out or os.path.join(home, "reports", f"report-{date.today().isoformat()}.html")
     inventory_outputs = []
     if args.knowledge_inventory:
-        inventory = load_inventory(args.knowledge_inventory)
         inventory_outputs = write_inventory(inventory, os.path.dirname(os.path.abspath(out)), css, os.path.basename(out))
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w", encoding="utf-8") as fh:

@@ -2,8 +2,80 @@
 import html
 import json
 import os
+import re
 from collections import Counter
 from pathlib import Path
+
+
+def item_anchor(item_id):
+    """Keep readable IDs stable; encode arbitrary text without markup or collisions."""
+    return "item-" + (item_id if re.fullmatch(r"[A-Za-z0-9_.-]+", item_id)
+                      else ":" + item_id.encode("utf-8").hex())
+
+
+ANCHOR_NAV_JS = """
+(function () {
+  function reveal(hash) {
+    let id;
+    try { id = decodeURIComponent(hash.slice(1)); } catch (_) { return; }
+    const target = document.getElementById(id);
+    if (!target) return;
+    document.dispatchEvent(new CustomEvent('insights:anchor', {detail: target}));
+    for (let node = target; node; node = node.parentElement) {
+      if (node.tagName === 'DETAILS') node.open = true;
+    }
+    const detail = target.querySelector('details[data-anchor-details]');
+    if (detail) detail.open = true;
+    requestAnimationFrame(() => {
+      target.scrollIntoView();
+      target.focus({preventScroll: true});
+    });
+  }
+  document.addEventListener('click', event => {
+    const link = event.target.closest('a[href^="#"]');
+    if (link) reveal(link.getAttribute('href'));
+  });
+  window.addEventListener('hashchange', () => reveal(location.hash));
+  reveal(location.hash);
+})();
+"""
+
+
+INVENTORY_FILTER_JS = r"""
+(function () {
+  const form = document.getElementById('inventory-filter');
+  const query = document.getElementById('inventory-query');
+  const status = document.getElementById('inventory-status');
+  const count = document.getElementById('inventory-result-count');
+  const cards = [...document.querySelectorAll('[data-knowledge-item]')];
+  const entries = cards.map(card => ({card, search: card.textContent.toLocaleLowerCase()}));
+  function filter() {
+    const terms = query.value.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+    let visible = 0;
+    for (const {card, search} of entries) {
+      card.hidden = !terms.every(term => search.includes(term)) || (status.value !== '' && card.dataset.status !== status.value);
+      if (!card.hidden) visible++;
+    }
+    document.querySelectorAll('[data-inventory-category]').forEach(section => {
+      section.hidden = ![...section.querySelectorAll('[data-knowledge-item]')].some(card => !card.hidden);
+    });
+    count.textContent = '显示 ' + visible + ' / ' + cards.length + ' 项';
+  }
+  form.addEventListener('submit', event => { event.preventDefault(); filter(); });
+  query.addEventListener('input', filter);
+  status.addEventListener('change', filter);
+  document.getElementById('inventory-clear').addEventListener('click', () => {
+    query.value = ''; status.value = ''; filter(); query.focus();
+  });
+  document.addEventListener('insights:anchor', event => {
+    const card = event.detail.closest('[data-knowledge-item]');
+    const category = event.detail.closest('[data-inventory-category]');
+    if ((card && card.hidden) || (category && category.hidden)) { query.value = ''; status.value = ''; filter(); }
+  });
+  form.hidden = false;
+  filter();
+})();
+"""
 
 
 def load_inventory(path):
@@ -69,16 +141,23 @@ def write_inventory(data, directory, css, report_name):
                                  for e in item["evidence"])
             fields = "".join(f'<p><strong>{label}：</strong>{esc(item[key])}</p>'
                              for key, label in labels if item.get(key))
-            cards.append(f'<div class="narrative" style="overflow-wrap:anywhere"><p><strong>{esc(item["id"])} · {esc(item["title"])}</strong></p>'
+            cards.append(f'<div class="narrative" id="{item_anchor(item["id"])}" tabindex="-1" data-knowledge-item data-status="{esc(item["status"])}" style="overflow-wrap:anywhere"><p><strong>{esc(item["id"])} · {esc(item["title"])}</strong> '
+                         f'<a href="#{item_anchor(item["id"])}" aria-label="此条目链接">¶</a></p>'
                          f'<p>{esc(item["summary"])}</p><p><strong>状态：</strong>{esc(item["status"])}</p>'
-                         f'<details><summary>背景、复用与来源</summary>{fields}<ul>{references}</ul></details></div>')
+                         f'<details data-anchor-details><summary>背景、复用与来源</summary>{fields}<ul>{references}</ul></details></div>')
             markdown += [f'### {item["id"]} · {item["title"]}', "", item["summary"], "", f'状态：{item["status"]}', ""]
             for key, label in labels:
                 if item.get(key):
                     markdown += [f"{label}：{text(item[key])}", ""]
             markdown += ["来源：", ""] + [f'- {e.get("source_id", "")} · {e["locator"]}：{e.get("quote_or_summary", "")}' for e in item["evidence"]] + [""]
-        sections.append(f'<h2 id="category-{n}">{esc(category)}</h2>' + "".join(cards))
+        sections.append(f'<section data-inventory-category><h2 id="category-{n}">{esc(category)}</h2>' + "".join(cards) + '</section>')
     counts = Counter(i["status"] for i in items)
+    options = ''.join(f'<option value="{esc(status)}">{esc(status)}</option>' for status in counts)
+    filters = ('<form id="inventory-filter" class="narrative" hidden role="search" aria-label="筛选知识盘点">'
+               '<p><label for="inventory-query">关键词 </label><input id="inventory-query" type="search" placeholder="标题、经验、来源；空格分隔多个词"> '
+               '<label for="inventory-status">状态 </label><select id="inventory-status"><option value="">全部状态</option>'
+               + options + '</select> <button id="inventory-clear" type="button">清除筛选</button></p>'
+               f'<p id="inventory-result-count" role="status" aria-live="polite">显示 {len(items)} / {len(items)} 项</p></form>')
     doc = ('<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">'
            '<meta name="viewport" content="width=device-width, initial-scale=1">'
            f'<title>{esc(title)}</title><style>{css}</style></head><body><div class="container">'
@@ -87,7 +166,7 @@ def write_inventory(data, directory, css, report_name):
            '<p>条目为盘点结果；未自动写入长期知识，也不将候选视作已采纳。</p>'
            f'<p>{esc("；".join(f"{k} {v} 项" for k, v in counts.items()))}</p>'
            f'<details><summary>读取覆盖与盘点边界</summary><p>{esc(scope_text)}</p></details></div>'
-           + "".join(sections) + '</div></body></html>')
+           + filters + "".join(sections) + '<script>' + INVENTORY_FILTER_JS + ANCHOR_NAV_JS + '</script></div></body></html>')
     payloads = {"knowledge-inventory.html": doc, "knowledge-inventory.md": "\n".join(markdown),
                 "knowledge-inventory.json": json.dumps(data, ensure_ascii=False, indent=2) + "\n"}
     outputs = []
