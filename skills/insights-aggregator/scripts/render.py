@@ -221,9 +221,9 @@ def evidence_sections(ins, sources, inventory_ids=None):
         cards = ''.join(f'<details class="project-area" id="{anchors[source["id"]]}" tabindex="-1">'
                         f'<summary class="card-title">{esc(source["id"])} · {esc(source.get("title"))}</summary>'
                         f'<div class="card-line">会话：{esc(source.get("session_id"))}</div>'
-                        f'<div class="card-line"><strong>原文定位：</strong>{esc(source.get("locator"))}</div>'
                         f'<div class="card-line">{esc(source.get("summary"))}</div>'
-                        f'<div class="feedback-evidence" data-source-backlinks="{anchors[source["id"]]}"></div></details>'
+                        f'<div class="feedback-evidence" data-source-backlinks="{anchors[source["id"]]}"></div>'
+                        f'<details><summary class="card-line">原文定位</summary><div class="card-line">{esc(source.get("locator"))}</div></details></details>'
                         for source in sources)
         sources_html = '<h2 id="section-sources">来源与核验入口</h2><div class="project-areas">' + cards + '</div>'
     return *sections, sources_html

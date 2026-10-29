@@ -317,6 +317,10 @@ class EvidenceBundleTests(unittest.TestCase):
         self.assertIn('href="#ref-source-E80-1"', document)
         self.assertIn('href="#ref-source-E80-2"', document)
         self.assertNotIn('data-source-backlinks', document)
+        self.assertEqual(document.count('<details><summary class="card-line">原文定位</summary>'), 105)
+        source80 = document.split('id="source-E80"', 1)[1].split('</details></details>', 1)[0]
+        self.assertLess(source80.index('LONG_SUMMARY_80'), source80.index('原文定位'))
+        self.assertLess(source80.index('返回正文'), source80.index('原文定位'))
         for n in range(105):
             self.assertIn(f'LONG_SUMMARY_{n}', document)
             self.assertIn(f'id="source-E{n}"', document)
