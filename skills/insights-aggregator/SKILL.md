@@ -55,6 +55,10 @@ python3 {skill_dir}/scripts/collect.py \
 
 采集器只读取每个 rollout 的冻结物理字节前缀并验证 SHA-256，压缩源先校验再解压；时间窗口另由事件时间裁切，物理快照不等同于时间窗口。
 
+冻结后原 JSONL 被压缩迁移时，按[采集重放与阅读前归属校准](reference/collection-replay.md)使用 `recover_codex_snapshot.py` 生成认证映射，再给 collect 传 `--codex-recovery-map`；旧 manifest 保持不变。解压后的旧冻结前缀身份与压缩文件物理身份分别校验，不能仅替换路径后缀。
+
+为深读制作消息包或分组任务前，先通过同一冻结源集合完成归属校准，复用上述参考中的 reader 入口。已确认的继承历史按原身份复用或按需作背景；归属待核实内容单列，不按时间戳直接当成本期新增。容量分块不是业务阶段，长会话分工后由主控串行核对后续修正与前期结论的关系。
+
 ### Step 2 — Facet 提取（并行子 agent）
 
 读 `~/.agent-insights/work/pending_facets.json`。若为空（命中缓存或本次不提取 facet）直接跳到 Step 3。
