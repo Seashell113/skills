@@ -34,7 +34,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from codex_segments import fork_parent_source, read_owned_codex_stream
+from codex_segments import fork_parent_source, load_snapshot_sources, read_owned_codex_stream
 
 
 SCHEMA_VERSION = 15
@@ -384,29 +384,11 @@ CODEX_WRAPPER_RE = re.compile(r"^<(environment_context|user_instructions|permiss
 BENIGN_EXIT1_RE = re.compile(r"^\s*(rg|grep|egrep|fgrep|diff|cmp|test|\[)\b")
 
 
-def codex_scan(codex_dir, snapshot_manifest=None):
+def codex_scan(codex_dir, snapshot_manifest=None, recovery_map=None):
     if snapshot_manifest:
-        with open(snapshot_manifest, encoding="utf-8") as fh:
-            manifest = json.load(fh)
-        snapshot_id = manifest.get("snapshot_id")
-        out = []
-        for item in manifest.get("files") or []:
-            path = item.get("path")
-            session_id = item.get("session_id")
-            if not path or not session_id:
-                continue
-            out.append({
-                "agent": "codex",
-                "session_id": session_id,
-                "path": path,
-                "mtime": item.get("mtime_ns", 0) / 1_000_000_000,
-                "mtime_ns": item.get("mtime_ns"),
-                "size": item.get("byte_length"),
-                "byte_length": item.get("byte_length"),
-                "sha256": item.get("sha256"),
-                "source_snapshot_id": snapshot_id,
-            })
-        return out
+        return load_snapshot_sources(snapshot_manifest, recovery_map)
+    if recovery_map:
+        raise ValueError("--codex-recovery-map requires --codex-snapshot-manifest")
 
     out = []
     for directory in ("sessions", "archived_sessions"):
@@ -481,7 +463,7 @@ def _deduplicate_codex_users(events):
     return result
 
 
-def codex_parse(path, session_id, byte_limit=None, expected_sha256=None, lineage_sources=None):
+def codex_parse(path, session_id, byte_limit=None, expected_sha256=None, lineage_sources=None, recovery_source=None):
     events, project_path, source = [], "", None
     start, thread_source = None, None
     call_cmds = {}  # call_id → 命令字符串，用于报错豁免判断
@@ -493,6 +475,7 @@ def codex_parse(path, session_id, byte_limit=None, expected_sha256=None, lineage
         byte_limit=byte_limit,
         expected_sha256=expected_sha256,
         lineage_sources=lineage_sources,
+        recovery_source=recovery_source,
     )
     for record in owned.records:
         baseline = owned.audit.get("token_baselines", {}).get(str(record.line_number))
@@ -849,6 +832,7 @@ def compute_meta(s: ParsedSession, source_info, display_timezone=None):
         "src_size": source_info.get("size"),
         "src_sha256": source_info.get("sha256") or s.source_audit.get("sha256"),
         "source_snapshot_id": source_info.get("source_snapshot_id"),
+        "source_recovery": source_info.get("recovery_source"),
         "source_audit": s.source_audit,
     }
 
@@ -898,6 +882,7 @@ def main():
         "--codex-snapshot-manifest",
         help="使用冻结的 Codex rollout 清单（path/byte_length/sha256），而非实时扫描",
     )
+    ap.add_argument("--codex-recovery-map", help="旧 JSONL 到压缩后继的认证恢复映射；不修改原 manifest")
     args = ap.parse_args()
 
     try:
@@ -913,7 +898,7 @@ def main():
         os.makedirs(os.path.join(home, sub), exist_ok=True)
 
     scanned = claude_scan(args.claude_dir) + codex_scan(
-        args.codex_dir, args.codex_snapshot_manifest
+        args.codex_dir, args.codex_snapshot_manifest, args.codex_recovery_map
     )
     scanned.sort(key=lambda x: -x["mtime"])
     lineage_sources = {item["session_id"]: item for item in scanned if item["agent"] == "codex"}
@@ -938,6 +923,7 @@ def main():
                         or cached.get("src_mtime_ns") != info.get("mtime_ns")
                         or cached.get("src_size") != info.get("size")
                         or cached.get("source_snapshot_id") != info.get("source_snapshot_id")
+                        or cached.get("source_recovery") != info.get("recovery_source")
                         or old_fork.get("parent_source") != parent_source
                         or (
                             info.get("sha256")
@@ -963,6 +949,7 @@ def main():
                     byte_limit=info.get("byte_length"),
                     expected_sha256=info.get("sha256"),
                     lineage_sources=lineage_sources,
+                    recovery_source=info.get("recovery_source"),
                 )
         except (OSError, UnicodeDecodeError, ValueError) as exc:
             s = None
@@ -1035,7 +1022,7 @@ def main():
                 s = claude_parse(src["path"], m["session_id"])
             else:
                 s = codex_parse(src["path"], m["session_id"], byte_limit=src.get("byte_length"),
-                                expected_sha256=src.get("sha256"), lineage_sources=lineage_sources)
+                                expected_sha256=src.get("sha256"), lineage_sources=lineage_sources, recovery_source=src.get("recovery_source"))
         except (OSError, UnicodeDecodeError, ValueError):
             s = None
         if s is None:
