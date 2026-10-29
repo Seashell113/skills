@@ -48,3 +48,14 @@ python3 scripts/render.py --home /private/path/run --out /private/path/run/repor
 ```
 
 在报告同目录生成 `knowledge-inventory.html`、`.md`、`.json`，并加入往返链接。HTML 复用原报告 CSS；Markdown 与 JSON 可独立用于后续检索、去重和知识治理。报告中 `knowledge_findings` 只选少量值得读者思考或尝试的内容，详细盘点与证据不重复铺进主报告。
+
+
+## 条目定位与筛选
+
+HTML 的条目锚点由既有 `items[].id` 决定，例如 `C172` 对应 `knowledge-inventory.html#item-C172`，调换条目顺序不会改变链接。普通字母、数字、点、下划线与短横线原样保留，其他 ID 以 UTF-8 十六进制编码；不把外部输入直接用作 HTML。
+
+`knowledge_findings.findings[]` 可选提供 `"inventory_ids": ["C172", "C241"]`，只在本轮传入知识盘点且 ID 确实存在时生成具体条目链接。兼容旧材料的单值 `candidate_id`；不根据标题或来源相似度猜测对应关系。旧 section 不带这些字段仍按原方式渲染。
+
+关键词筛选覆盖条目标题、摘要、状态及展开后的背景、经验和来源文字；空格分词，多个词同时命中。状态选项沿用数据已有取值，可组合筛选，实时显示结果数并支持清除。表单使用原生输入、下拉与按钮，可用键盘操作；筛选只改变可见性，不删改条目或 JSON / Markdown。无 JavaScript 时隐藏筛选表单，全部条目仍显示并可用浏览器查找。
+
+从报告或书签进入条目锚点会展开其背景与来源；当前筛选隐藏目标时自动清除筛选，保证深链接可见。HTML / 脚本输入均按文本处理，查询不会进入 `innerHTML`。
