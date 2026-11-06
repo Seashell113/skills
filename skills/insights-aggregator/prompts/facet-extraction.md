@@ -48,6 +48,7 @@ JSON 必须严格符合以下 schema：
   "session_id": "{{session_id}}",
   "_user_message_count": {{user_message_count}},
   "_parser_schema_version": {{parser_schema_version}},
+  "_analysis_window": {{analysis_window}},
   "underlying_goal": "用户根本上想达成什么（中文）",
   "goal_categories": {"类别key": 次数},
   "outcome": "fully_achieved|mostly_achieved|partially_achieved|not_achieved|unclear_from_transcript",
@@ -61,6 +62,26 @@ JSON 必须严格符合以下 schema：
   "user_instructions_to_agent": ["具体指令（保留用户原话语言）", ...]
 }
 
-注意：JSON 的 key 和枚举值保持英文（供程序消费）；`underlying_goal`、`friction_detail`、`brief_summary` 等自由文本字段用中文写。`_user_message_count` 和 `_parser_schema_version` 原样填入给定数字（用于检测会话续写和解析口径升级后的 facet 过期），不要自己数或猜版本。
+注意：JSON 的 key 和枚举值保持英文（供程序消费）；`underlying_goal`、`friction_detail`、`brief_summary` 等自由文本字段用中文写。`_user_message_count` 和 `_parser_schema_version` 原样填入给定数字（用于检测会话续写和解析口径升级后的 facet 过期），不要自己数或猜版本。`_analysis_window` 原样写入 pending 的 `analysis_window` 对象；只分析该窗口内材料，不带入会话此前结论。
 
 写完文件后，你的最终回复只需：`done {{session_id}}`（若 transcript 不可读则回复 `failed {{session_id}}: 原因`）。
+
+## 可选：历史知识与基建效果候选
+
+仅在本轮范围包含知识提取或基建效果分析时，在上述原有 facet 上追加下列可选字段；不替代任何原字段，不为缺少新字段而重跑旧 facet。已有任务证据可以通过 evidence bundle 进入聚合，直接阅读不伪装成 facet。
+
+```json
+{
+  "knowledge_candidates": [
+    {"title": "业务/项目/技术/组织经验", "finding": "有来源的事实或判断", "evidence": ["source_id"], "reuse": "适用场景", "status": "候选/已采纳/已验证等实际状态", "limits": "证据边界"}
+  ],
+  "infrastructure_observations": [
+    {"name": "实际使用的 Agent/subagent/Skill/model/tool", "purpose": "为何使用", "observed_result": "可观察的结果", "alternative_and_cost": "可比方案及实际成本；不足写未知", "decision": "保留/调整/待验证的建议", "next_check": "需要补什么证据", "evidence": ["source_id"], "limits": "归因限制"}
+  ],
+  "sources": [{"id": "source_id", "title": "来源标题", "session_id": "原会话ID", "locator": "已给定片段或原文行号", "summary": "支持的事实"}]
+}
+```
+
+来源 id 应含 session_id 或其他稳定身份，避免跨会话重名。记录出处与采纳状态是两件事：指令被读取不证明已使用，出现工具调用不证明有效，完成测试不证明生产验收，建议不等于用户决定。模型、推理强度和 subagent 数量本身不能证明成本收益。没有价格、token、时长、返工或同条件替代证据时，相关成本与因果写未知。
+
+只读取已给定 transcript 或冻结证据包。摘要不足以支撑关键判断时，先按 session_id 与 locator 只下钻相关原文片段；注明本轮读取范围，不能据局部片段声称完整复核了长会话。原文不可达时保留候选与未知，不能自行扩大到全历史扫描。

@@ -1,0 +1,73 @@
+# 复用已准备的证据
+
+已有任务摘要、有限原文核验和确定性统计时，可绕开 collect 与 facet 重提，继续使用原 aggregate / section / render 流程。它是有选择的证据输入，不代表全量采集或新完成的 facet。
+
+使用独立的 `--home`，避免混入上一轮的 section JSON；聚合不读取会话缓存，不调用模型，不自动删除旧 section：
+
+```bash
+python3 scripts/aggregate.py --evidence-bundle /private/path/bundle.json --home /private/path/run
+# 按 prompts/insight-sections.md 生成原 7/9 个 section，以及请求范围内的两个可选 section
+python3 scripts/render.py --home /private/path/run
+```
+
+`--evidence-bundle` 模式以 bundle 的冻结时间和范围为准，不使用 `--days` 或 `--as-of` 重筛。标准缓存流程的窗口语义不变。
+
+最小结构（仅演示结构，非真实数据）：
+
+```json
+{
+  "schema_version": 1,
+  "generated_at": "2026-10-01T00:00:00+00:00",
+  "window": {"days": 30, "cutoff": "2026-09-01T00:00:00Z", "as_of": "2026-10-01T00:00:00Z"},
+  "selection": {
+    "method": "按任务主题选择并核验相关片段",
+    "selected_sessions": 1,
+    "facets_extracted": 0,
+    "direct_read_sessions": 1,
+    "limits": "目的性选样；不推断全量频率",
+    "scope_note": "可补充助手消息数、统计口径与冻结范围"
+  },
+  "metrics": {
+    "combined": {"total_sessions": 1, "sessions_with_facets": 0, "total_messages": 3, "git_commits": null},
+    "by_agent": {"codex": {"total_sessions": 1, "sessions_with_facets": 0, "total_messages": 3}}
+  },
+  "sources": [{"id": "S1", "title": "合成任务", "session_id": "example", "locator": "冻结片段 L10-L20", "summary": "片段支持的事实"}],
+  "knowledge_candidates": [],
+  "infrastructure_observations": []
+}
+```
+
+`metrics.combined` 与每个 `by_agent` 组接受原 `aggregate_group` 的字段子集；常用字段：`date_range:{start,end}`、`total_sessions`、`sessions_with_facets`、`total_messages`（仅用户消息）、`total_duration_hours`、`days_active`、`git_commits`、`total_lines_added`、`total_lines_removed`、`tool_counts`、`tool_category_counts`、`models`、`reasoning_effort`。模型/强度计数必须沿用原单位，不能由任务标签猜测。
+
+未知数值省略或填 `null`，显式 `0` 仅表示已核实为零。未知字典/列表用空显示容器，但输出的 `available_metrics` 只记录输入中非 null 的字段；分析时必须看这份清单，不能把空显示容器当零。满意度未知不补 0%；没有时长/commits/模型记录就显示未知或暂无数据。`sessions_with_facets` 只计真实完成的原 facet；直接阅读计入 `selection.direct_read_sessions`，顶部显示直接阅读任务数。
+
+若有可靠跨工具统计，可选传 `metrics.cross_tool`（沿用原 `overlap`、`handoffs:{direction_counts,examples}`、`project_tool_matrix` 结构）。未提供时 `cross_tool_metrics_available:false`，不据空容器推断无接力/并行。单一工具不生成跨工具对比。
+
+知识候选与基建观察沿用两个可选 section 的条目结构，见 [section 提示词](../prompts/insight-sections.md)。`sources[].id` 必须唯一，每个来源必须带 `locator`。来源是可定位证据，`status` 是采纳/验证状态，两者独立；读取某份材料不能自动成为已采纳或已验证。报告将 source id 链接到本页来源区，locator 作为文本显示，不执行文件协议或外链。
+
+输入和报告留在私密本地目录，权限由聚合/渲染设为 0600。公开源码只保留合成测试，不能带入真实会话、公司内容或报告。
+
+正常 facet 缓存路径在聚合时将本地 source id 转为 `facet/<agent>/<session_id>/<local_id>`（各部分 URL 编码），并同步候选条目的 evidence 引用；缓存文件保持原样。同一 facet 内重复 id 会明确拒绝，两个会话各自的 `S1` 不会误链。bundle 的 source id 已要求全局唯一，沿用原值。
+
+## 确定性统计与语义样本分别复用
+
+语义只深读部分任务时，也可以先用 collect / aggregate 重算完整授权窗口的统计，设置 `--max-facets 0` 避免新 LLM 抽取。将聚合的 `combined`、`by_agent`、`cross_tool` 放入 bundle 的 `metrics`，保留精确窗口和统计来源清单；不要把 `available_metrics` 等展示字段再当输入指标。可选传顶层 `internal_sessions_excluded` 与 `internal_model_effort` 保留内部会话独立统计。
+
+在 `selection` 中设置 `statistics_scope: "window"`，并分别填写统计母体范围、`direct_read_sessions`、`selected_sessions` 与排除条件。若任务目标等语义图表仅来自直接阅读样本，设置 `semantic_metrics_scope: "sample"`；报告会明确区分样本图表和窗口统计。没有 facet 时，任务结果、满意度、摩擦分布保持缺失，不由工具报错或助手自报补算。
+
+独立知识盘点使用 [盘点协议](knowledge-inventory.md)，不受正文卡片上限限制；知识盘点条目数与深读会话数分别计数。
+
+## 聚焦实际使用的工具
+
+原始统计包含多个工具，但本期只分析其中一个时，保留完整聚合文件另作依据。将选中工具的原始 `by_agent[agent]` 同时用作新 bundle 的 `metrics.combined` 和唯一 `metrics.by_agent` 分组，省略 `metrics.cross_tool`；不要用多工具总数或相加活跃天数代替该工具的统计。内部会话、语义样本与来源也需按本期工具范围核对，不能只过滤工具表。
+
+`selection.focus_note` 可写一句面向读者的范围说明（例如另一工具仅有零星记录，本期不分析其使用与协作）；具体排除数及依据放在 `selection.limits`。仅有少量记录时写“不足以分析”，用户明确确认未使用时可引用这一事实，不从缺记录推断未使用。报告据 `metrics.by_agent` 判断单/多工具；单工具会隐藏工具表、分工、对比、跨工具图表和组合建议。
+
+
+## 来源与统计的按需阅读
+
+来源卡保留全部 `sources`，默认只显示编号和标题，长摘要和会话 ID 置于原生 `details` 中；原文定位另有内层折叠，点击正文引用时先看到摘要与返回路径，按需查看行号。正文来源链接使用稳定的 `source-<id>` 锚点；打开初始 hash、点击正文引用或浏览器前进后退时，脚本展开目标并定位。无 JavaScript 时锚点仍落到可见的来源标题，可手动展开。
+
+每次正文引用在渲染时分配独立的 `ref-source-<id>-<序号>` 锚点；来源卡里的“返回正文”列出对应引用位置。序号只表示本报告中的出现顺序，不是来源身份；不承诺正文编辑后引用序号不变。
+
+统计保持原输入及计数单位。主图用于回看工作重心和配置构成；内部会话、工具调用及使用节奏等记录放在可展开的统计细节中，图表与数值仍随报告保存，无 JavaScript 也能展开。模型与推理图用于配置盘点；没有阶段及结果关联时，不从分布推导模型效果、节省或返工原因。

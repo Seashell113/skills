@@ -11,9 +11,10 @@
                      [--max-facets 50] [--claude-dir ~/.claude] [--codex-dir ~/.codex]
 
 窗口语义:
-  - SessionMeta 始终全量增量维护（解析便宜，长程信号需要完整历史）。
-  - facet 提取只针对 --days 窗口内（默认最近 30 天）的实质会话，新→旧最多
-    --max-facets 条，不向窗口外回填。--days 0 表示不限窗口。
+  - --since / --as-of 定义 (since, as_of]；--days 默认 30，0 表示不设起点。
+  - SessionMeta、transcript 和 facet 共用活动窗口，缓存按窗口与来源状态失效。
+  - 根会话统计需至少一次窗口内用户输入；facet 单独要求至少 2 次输入和 1 分钟，
+    新→旧最多 --max-facets 条，不向窗口外回填。
   - 已缓存 facet 的会话若消息数显著增长（resume 续写 ≥5 条），会重新入队提取。
 
 输出（写入 --home 目录）:
@@ -31,11 +32,12 @@ import os
 import re
 import sys
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from codex_segments import read_owned_codex_stream
+from codex_segments import fork_parent_source, load_snapshot_sources, read_owned_codex_stream
 
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 15
 INTERRUPT_MARKER = "[Request interrupted by user"
 # Claude Code 把 /command 的本地执行记录也写成 user 消息，不是人类输入
 CLAUDE_NOISE_RE = re.compile(
@@ -62,7 +64,9 @@ CLAUDE_TOOL_CATEGORY = {
     "TodoWrite": "plan", "TaskCreate": "plan", "TaskUpdate": "plan", "ExitPlanMode": "plan",
     "Skill": "skill",
 }
+ORCHESTRATION_TOOLS = {"functions.exec", "exec", "functions__exec", "functions_exec"}
 CODEX_TOOL_CATEGORY = {
+    **{name: "orchestration" for name in ORCHESTRATION_TOOLS},
     "exec_command": "shell", "shell": "shell", "local_shell": "shell",
     "write_stdin": "shell", "read_thread_terminal": "shell",
     "apply_patch": "edit", "view_image": "read",
@@ -85,6 +89,29 @@ ERROR_RULES = [  # (子串列表, 分类) — 与源码一致，顺序敏感
 ]
 
 
+def tool_metric_coverage(wrapped_calls):
+    """Top-level records cannot establish what happened inside orchestration code."""
+    return {
+        "tool_counts": "top_level_records",
+        "tool_category_counts": "top_level_records",
+        "git_commits": "direct_calls_only",
+        "git_pushes": "direct_calls_only",
+        "lines_added": "direct_calls_only",
+        "lines_removed": "direct_calls_only",
+        "files_modified": "direct_calls_only",
+        "languages": "direct_calls_only",
+        "tool_errors": "direct_results_only",
+        "tool_error_categories": "direct_results_only",
+        "uses_task_agent": "direct_calls_only",
+        "uses_mcp": "direct_calls_only",
+        "uses_web_search": "direct_calls_only",
+        "uses_web_fetch": "direct_calls_only",
+        "nested_tool_calls": "not_parsed",
+        "has_unparsed_wrapped_calls": wrapped_calls > 0,
+        "note": "提交、补丁行数、语言和工具错误仅识别直接记录；编排内嵌套调用未解析，不能代表完整工具活动。",
+    }
+
+
 def classify_error(text):
     low = (text or "").lower()
     for needles, cat in ERROR_RULES:
@@ -102,13 +129,63 @@ def parse_ts(s):
     if not s:
         return None
     try:
-        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
     except ValueError:
         return None
 
 
 def iso(dt):
     return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def display_timezone_info(name=None, at=None):
+    """Date/hour presentation timezone; event inclusion remains UTC-based."""
+    name = name or "local"
+    try:
+        zone = ZoneInfo(name) if name != "local" else None
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValueError(f"unknown --timezone: {name}") from exc
+    local = (at or datetime.now(timezone.utc)).astimezone(zone)
+    return {"name": name, "label": local.tzname(), "utc_offset": local.strftime("%z")}
+
+
+def analysis_window(days=30, since=None, as_of=None):
+    """Canonical event window: exclusive since, inclusive as_of; naive ISO means UTC."""
+    end = parse_ts(as_of) if as_of else datetime.now(timezone.utc)
+    if end is None:
+        raise ValueError("--as-of must be an ISO 8601 timestamp")
+    if days < 0:
+        raise ValueError("--days must be non-negative")
+    start = parse_ts(since) if since else (end - timedelta(days=days) if days else None)
+    if since and start is None:
+        raise ValueError("--since must be an ISO 8601 timestamp")
+    if start is not None and start >= end:
+        raise ValueError("--since must be earlier than --as-of")
+    return {"since": iso(start) if start else None, "as_of": iso(end)}
+
+
+def project_window(session, window):
+    """Project all metrics/transcripts together, never infer activity from creation time."""
+    start, end = parse_ts(window["since"]), parse_ts(window["as_of"])
+    events = [event for event in session.events if event.get("ts") is not None
+              and (start is None or event["ts"] > start) and event["ts"] <= end]
+    timestamps = [event["ts"] for event in events]
+    projected = ParsedSession(session.agent, session.session_id, session.project_path, events,
+                              min(timestamps) if timestamps else end,
+                              max(timestamps) if timestamps else end,
+                              # Native summary can describe out-of-window work.
+                              summary=None, source=session.source, thread_source=session.thread_source,
+                              source_audit=session.source_audit)
+    return projected
+
+
+def facet_matches_window(facet, meta):
+    stamp = facet.get("_analysis_window")
+    if stamp is not None:
+        return stamp == meta.get("analysis_window")
+    # Legacy lifecycle facets are safe only if the entire parsed history is in scope.
+    return bool(meta.get("window_covers_session", not meta.get("analysis_window")))
 
 
 # ============================================================================
@@ -299,7 +376,7 @@ def claude_parse(path, session_id):
 
 # ------------------------------- Codex 适配器 -------------------------------
 
-CODEX_FILE_RE = re.compile(r"rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$")
+CODEX_FILE_RE = re.compile(r"rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl(?:\.zst)?$")
 EXIT_CODE_RE = re.compile(r"exited with code (\d+)")
 PATCH_FILE_RE = re.compile(r"^\*\*\* (Add|Update|Delete) File: (.+)$", re.MULTILINE)
 CODEX_WRAPPER_RE = re.compile(r"^<(environment_context|user_instructions|permissions|turn_context)", re.IGNORECASE)
@@ -307,49 +384,38 @@ CODEX_WRAPPER_RE = re.compile(r"^<(environment_context|user_instructions|permiss
 BENIGN_EXIT1_RE = re.compile(r"^\s*(rg|grep|egrep|fgrep|diff|cmp|test|\[)\b")
 
 
-def codex_scan(codex_dir, snapshot_manifest=None):
+def codex_scan(codex_dir, snapshot_manifest=None, recovery_map=None):
     if snapshot_manifest:
-        with open(snapshot_manifest, encoding="utf-8") as fh:
-            manifest = json.load(fh)
-        snapshot_id = manifest.get("snapshot_id")
-        out = []
-        for item in manifest.get("files") or []:
-            path = item.get("path")
-            session_id = item.get("session_id")
-            if not path or not session_id:
-                continue
-            out.append({
-                "agent": "codex",
-                "session_id": session_id,
-                "path": path,
-                "mtime": item.get("mtime_ns", 0) / 1_000_000_000,
-                "mtime_ns": item.get("mtime_ns"),
-                "size": item.get("byte_length"),
-                "byte_length": item.get("byte_length"),
-                "sha256": item.get("sha256"),
-                "source_snapshot_id": snapshot_id,
-            })
-        return out
+        return load_snapshot_sources(snapshot_manifest, recovery_map)
+    if recovery_map:
+        raise ValueError("--codex-recovery-map requires --codex-snapshot-manifest")
 
-    root = os.path.join(codex_dir, "sessions")
     out = []
-    if not os.path.isdir(root):
-        return out
-    for dirpath, _dirnames, filenames in os.walk(root):
-        for f in filenames:
-            m = CODEX_FILE_RE.search(f)
-            if not m:
-                continue
-            p = os.path.join(dirpath, f)
-            try:
-                st = os.stat(p)
-            except OSError:
-                continue
-            out.append({"agent": "codex", "session_id": m.group(1),
-                        "path": p, "mtime": st.st_mtime,
-                        "mtime_ns": st.st_mtime_ns, "size": st.st_size,
-                        "byte_length": st.st_size})
-    return out
+    for directory in ("sessions", "archived_sessions"):
+        root = os.path.join(codex_dir, directory)
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _dirnames, filenames in os.walk(root):
+            for filename in filenames:
+                match = CODEX_FILE_RE.search(filename)
+                if not match:
+                    continue
+                path = os.path.join(dirpath, filename)
+                try:
+                    st = os.stat(path)
+                except OSError:
+                    continue
+                out.append({"agent": "codex", "session_id": match.group(1),
+                            "path": path, "mtime": st.st_mtime,
+                            "mtime_ns": st.st_mtime_ns, "size": st.st_size,
+                            "byte_length": st.st_size})
+    # An archived/live duplicate represents one physical identity; prefer latest source.
+    best = {}
+    for item in out:
+        key = item["session_id"]
+        if key not in best or item["mtime_ns"] > best[key]["mtime_ns"]:
+            best[key] = item
+    return list(best.values())
 
 
 def _codex_patch_stats(patch_text, events, ts):
@@ -397,18 +463,24 @@ def _deduplicate_codex_users(events):
     return result
 
 
-def codex_parse(path, session_id, byte_limit=None, expected_sha256=None):
+def codex_parse(path, session_id, byte_limit=None, expected_sha256=None, lineage_sources=None, recovery_source=None):
     events, project_path, source = [], "", None
     start, thread_source = None, None
     call_cmds = {}  # call_id → 命令字符串，用于报错豁免判断
     current_turn_id = None
+    previous_usage = None
     owned = read_owned_codex_stream(
         path,
         session_id,
         byte_limit=byte_limit,
         expected_sha256=expected_sha256,
+        lineage_sources=lineage_sources,
+        recovery_source=recovery_source,
     )
     for record in owned.records:
+        baseline = owned.audit.get("token_baselines", {}).get(str(record.line_number))
+        if baseline:
+            previous_usage = baseline
         o = record.row
         t, p = o.get("type"), o.get("payload") or {}
         ts = parse_ts(o.get("timestamp"))
@@ -456,11 +528,27 @@ def codex_parse(path, session_id, byte_limit=None, expected_sha256=None):
             elif pt == "token_count":
                 info = p.get("info") or {}
                 last = info.get("last_token_usage") or {}
-                if last:
-                    # 对齐 Claude 口径：input 不含缓存读取
-                    tin = max(0, (last.get("input_tokens") or 0) - (last.get("cached_input_tokens") or 0))
+                total = info.get("total_token_usage") or {}
+                usage = None
+                if total and previous_usage is not None:
+                    # Cumulative counters can replay unchanged snapshots. Subtract the
+                    # preceding owned snapshot, including snapshots before --since.
+                    delta = {key: (total.get(key) or 0) - (previous_usage.get(key) or 0)
+                             for key in ("input_tokens", "cached_input_tokens", "output_tokens")}
+                    if all(value >= 0 for value in delta.values()):
+                        usage = delta
+                elif last:
+                    usage = last
+                previous_usage = total or None
+                if usage is not None:
+                    tin = max(0, (usage.get("input_tokens") or 0) - (usage.get("cached_input_tokens") or 0))
                     events.append({"kind": "tokens", "ts": ts, "tokens_in": tin,
-                                   "tokens_out": last.get("output_tokens") or 0,
+                                   "tokens_out": usage.get("output_tokens") or 0,
+                                   "turn_id": current_turn_id})
+                elif info:
+                    # No reliable baseline: do not charge a lifecycle cumulative total
+                    # to the first window record. Report the missing measurement.
+                    events.append({"kind": "tokens_missing", "ts": ts,
                                    "turn_id": current_turn_id})
             elif pt == "turn_aborted" and p.get("reason") == "interrupted":
                 events.append({"kind": "interrupt", "ts": ts,
@@ -553,16 +641,19 @@ def codex_parse(path, session_id, byte_limit=None, expected_sha256=None):
 # SessionMeta 计算（与 /insights 源码 extractToolStats / logToSessionMeta 对齐）
 # ============================================================================
 
-def compute_meta(s: ParsedSession, source_info):
+def compute_meta(s: ParsedSession, source_info, display_timezone=None):
     tool_counts, languages, error_cats = {}, {}, {}
     category_counts = {}
     git_commits = git_pushes = tokens_in = tokens_out = 0
     interruptions = tool_errors = 0
     lines_added = lines_removed = 0
     files_modified = set()
-    response_times, message_hours, user_ts = [], [], []
+    response_times, message_hours, user_ts, message_dates = [], [], [], []
+    display_timezone = display_timezone or display_timezone_info(at=s.end)
+    zone_name = display_timezone["name"]
+    display_zone = ZoneInfo(zone_name) if zone_name != "local" else None
     uses = {"task_agent": False, "mcp": False, "web_search": False, "web_fetch": False}
-    user_count = assistant_count = 0
+    user_count = assistant_count = tool_wrapped_calls = 0
     models, efforts = {}, {}
     thinking_turns = thinking_total = 0
     auto_review_turns = 0
@@ -585,6 +676,12 @@ def compute_meta(s: ParsedSession, source_info):
                 last_assistant_ts = ts
             name = ev["tool"]
             tool_counts[name] = tool_counts.get(name, 0) + 1
+            if s.agent == "codex" and name in ORCHESTRATION_TOOLS:
+                tool_wrapped_calls += 1
+                category_counts["orchestration"] = category_counts.get("orchestration", 0) + 1
+                # Do not infer shell/patch work from JavaScript strings or wrapper
+                # arguments. The wrapper is the only directly observed tool here.
+                continue
             cat = "mcp" if name.startswith("mcp__") else cat_map.get(name, "other")
             category_counts[cat] = category_counts.get(cat, 0) + 1
             if name in ("Task", "Agent", "spawn_agent"):
@@ -663,8 +760,9 @@ def compute_meta(s: ParsedSession, source_info):
             if not first_prompt:
                 first_prompt = ev["text"].strip()[:200]
             if ts:
-                local = ts.astimezone()
+                local = ts.astimezone(display_zone)
                 message_hours.append(local.hour)
+                message_dates.append(local.date().isoformat())
                 user_ts.append(iso(ts))
                 if last_assistant_ts:
                     rt = (ts - last_assistant_ts).total_seconds()
@@ -675,7 +773,7 @@ def compute_meta(s: ParsedSession, source_info):
     # 内部会话判定：spawn_agent 的 worker/grader 子会话（thread_source=subagent），
     # 或纯自动评审会话（只有 auto-review 轮次、无用户主模型轮次）。
     # 这些不是用户发起的交互，计入统计会污染会话数/模型分布/并行检测。
-    is_internal = (getattr(s, "thread_source", None) == "subagent"
+    is_internal = (getattr(s, "thread_source", None) in {"subagent", "guardian_review"}
                    or (auto_review_turns > 0 and not models))
     # 活跃时长：事件间隔求和，单段 gap 封顶 15 分钟。跨天/跨周 resume 的会话
     # 用首尾跨度会严重虚高（一个会话挂一周 = 168h），聚合统计应使用本值。
@@ -700,11 +798,14 @@ def compute_meta(s: ParsedSession, source_info):
         "assistant_message_count": assistant_count,
         "tool_counts": tool_counts,
         "tool_category_counts": category_counts,
+        "tool_wrapped_calls": tool_wrapped_calls,
+        "metric_coverage": tool_metric_coverage(tool_wrapped_calls),
         "languages": languages,
         "git_commits": git_commits,
         "git_pushes": git_pushes,
         "input_tokens": tokens_in,
         "output_tokens": tokens_out,
+        "token_usage_missing_events": sum(ev["kind"] == "tokens_missing" for ev in s.events),
         "first_prompt": first_prompt,
         "summary": s.summary,
         "user_interruptions": interruptions,
@@ -719,6 +820,8 @@ def compute_meta(s: ParsedSession, source_info):
         "lines_removed": lines_removed,
         "files_modified": len(files_modified),
         "message_hours": message_hours,
+        "message_dates": message_dates,
+        "display_timezone": display_timezone,
         "user_message_timestamps": user_ts,
         "models": models,                    # Claude assistant 消息 / Codex 去重 native turn 配置记录
         "reasoning_effort": efforts,         # 仅 Codex：按 turn_id 去重的 native turn 配置记录
@@ -729,6 +832,7 @@ def compute_meta(s: ParsedSession, source_info):
         "src_size": source_info.get("size"),
         "src_sha256": source_info.get("sha256") or s.source_audit.get("sha256"),
         "source_snapshot_id": source_info.get("source_snapshot_id"),
+        "source_recovery": source_info.get("recovery_source"),
         "source_audit": s.source_audit,
     }
 
@@ -768,14 +872,24 @@ def main():
     ap.add_argument("--home", default=os.path.expanduser("~/.agent-insights"))
     ap.add_argument("--claude-dir", default=os.environ.get("CLAUDE_CONFIG_DIR", os.path.expanduser("~/.claude")))
     ap.add_argument("--codex-dir", default=os.path.expanduser("~/.codex"))
-    ap.add_argument("--days", type=int, default=30, help="facet 提取窗口：最近 N 天（0=不限）；meta 始终全量维护")
+    ap.add_argument("--days", type=int, default=30, help="活动窗口：最近 N 天（0=不限），--since 优先")
+    ap.add_argument("--since", help="活动窗口起点 ISO 8601（开区间）")
+    ap.add_argument("--as-of", help="活动窗口终点 ISO 8601（闭区间；默认当前 UTC）")
+    ap.add_argument("--timezone", help="日期和小时显示时区，如 Asia/Shanghai；默认宿主本地时区")
     ap.add_argument("--max-load", type=int, default=200, help="单次最多解析的未缓存会话数")
     ap.add_argument("--max-facets", type=int, default=50, help="窗口内最多提取的 facet 数")
     ap.add_argument(
         "--codex-snapshot-manifest",
         help="使用冻结的 Codex rollout 清单（path/byte_length/sha256），而非实时扫描",
     )
+    ap.add_argument("--codex-recovery-map", help="旧 JSONL 到压缩后继的认证恢复映射；不修改原 manifest")
     args = ap.parse_args()
+
+    try:
+        window = analysis_window(args.days, args.since, args.as_of)
+        display_timezone = display_timezone_info(args.timezone, parse_ts(window["as_of"]))
+    except ValueError as exc:
+        ap.error(str(exc))
 
     home = args.home
     for sub in ("cache/meta/claude-code", "cache/meta/codex",
@@ -784,12 +898,14 @@ def main():
         os.makedirs(os.path.join(home, sub), exist_ok=True)
 
     scanned = claude_scan(args.claude_dir) + codex_scan(
-        args.codex_dir, args.codex_snapshot_manifest
+        args.codex_dir, args.codex_snapshot_manifest, args.codex_recovery_map
     )
     scanned.sort(key=lambda x: -x["mtime"])
+    lineage_sources = {item["session_id"]: item for item in scanned if item["agent"] == "codex"}
 
-    metas, parsed_cache = [], {}
+    metas = []
     loaded = skipped_cache = failed = 0
+    window_start, window_end = parse_ts(window["since"]), parse_ts(window["as_of"])
     failure_details = []
     for info in scanned:
         meta_path = os.path.join(home, "cache/meta", info["agent"], info["session_id"] + ".json")
@@ -798,11 +914,17 @@ def main():
             try:
                 with open(meta_path, encoding="utf-8") as fh:
                     cached = json.load(fh)
-                if (cached.get("schema_version") != SCHEMA_VERSION
+                old_fork = (cached.get("source_audit") or {}).get("fork_history") or {}
+                parent_source = fork_parent_source(lineage_sources.get(old_fork.get("parent_session_id")))
+                if (cached.get("analysis_window") != window
+                        or cached.get("display_timezone") != display_timezone
+                        or cached.get("schema_version") != SCHEMA_VERSION
                         or cached.get("src_mtime") != info["mtime"]
                         or cached.get("src_mtime_ns") != info.get("mtime_ns")
                         or cached.get("src_size") != info.get("size")
                         or cached.get("source_snapshot_id") != info.get("source_snapshot_id")
+                        or cached.get("source_recovery") != info.get("recovery_source")
+                        or old_fork.get("parent_source") != parent_source
                         or (
                             info.get("sha256")
                             and cached.get("src_sha256") != info.get("sha256")
@@ -826,6 +948,8 @@ def main():
                     info["session_id"],
                     byte_limit=info.get("byte_length"),
                     expected_sha256=info.get("sha256"),
+                    lineage_sources=lineage_sources,
+                    recovery_source=info.get("recovery_source"),
                 )
         except (OSError, UnicodeDecodeError, ValueError) as exc:
             s = None
@@ -847,23 +971,27 @@ def main():
                 })
             failed += 1
             continue
-        meta = compute_meta(s, info)
+        source_start, source_end = iso(s.start), iso(s.end)
+        covers_session = all((window_start is None or event["ts"] > window_start)
+                             and event["ts"] <= window_end for event in s.events if event.get("ts"))
+        s = project_window(s, window)
+        meta = compute_meta(s, info, display_timezone)
+        meta.update(analysis_window=window, source_start_time=source_start,
+                    source_end_time=source_end, window_covers_session=covers_session,
+                    has_window_activity=bool(s.events))
         with open(meta_path, "w", encoding="utf-8") as fh:
             json.dump(meta, fh, ensure_ascii=False, indent=1)
         os.chmod(meta_path, 0o600)
         metas.append(meta)
-        parsed_cache[(info["agent"], info["session_id"])] = s
+        # Keep only one parsed session in memory; transcripts are reparsed on demand.
+        del s
 
-    # facet 选取：窗口内（--days，按会话开始时间）的实质会话，新→旧最多 --max-facets 条。
-    # 不向窗口外回填；已缓存的跳过，除非会话在提取后又显著续写（消息数 +5 以上）。
-    cutoff_iso = ""
-    if args.days > 0:
-        cutoff_iso = iso(datetime.now(timezone.utc) - timedelta(days=args.days))
+    # Statistics include every root with real in-window input; facet cost keeps
+    # its independent substantive threshold.
     substantive = [m for m in metas if m["user_message_count"] >= 2 and m["duration_minutes"] >= 1
                    and not m.get("is_internal")]
-    internal_count = sum(1 for m in metas if m.get("is_internal"))
-    in_window = [m for m in substantive if m["start_time"] >= cutoff_iso]
-    in_window.sort(key=lambda m: m["start_time"], reverse=True)
+    internal_count = sum(1 for m in metas if m.get("is_internal") and m.get("has_window_activity"))
+    in_window = sorted(substantive, key=lambda m: m["start_time"], reverse=True)
     candidates = in_window[:args.max_facets]
     pending, cached_facets_in_window = [], 0
     for m in candidates:
@@ -874,6 +1002,8 @@ def main():
                 with open(facet_path, encoding="utf-8") as fh:
                     facet = json.load(fh)
                     old_count = facet.get("_user_message_count")
+                if not facet_matches_window(facet, m):
+                    stale = True
                 if m["agent"] == "codex" and facet.get("_parser_schema_version") != SCHEMA_VERSION:
                     stale = True  # Parser fixes can change transcript meaning without +5 messages.
                 if old_count is not None and m["user_message_count"] - old_count >= 5:
@@ -884,25 +1014,20 @@ def main():
                 cached_facets_in_window += 1
                 continue
         key = (m["agent"], m["session_id"])
-        s = parsed_cache.get(key)
+        src = next((i for i in scanned if (i["agent"], i["session_id"]) == key), None)
+        if not src:
+            continue
+        try:
+            if m["agent"] == "claude-code":
+                s = claude_parse(src["path"], m["session_id"])
+            else:
+                s = codex_parse(src["path"], m["session_id"], byte_limit=src.get("byte_length"),
+                                expected_sha256=src.get("sha256"), lineage_sources=lineage_sources, recovery_source=src.get("recovery_source"))
+        except (OSError, UnicodeDecodeError, ValueError):
+            s = None
         if s is None:
-            src = next((i for i in scanned if (i["agent"], i["session_id"]) == key), None)
-            if not src:
-                continue
-            try:
-                if m["agent"] == "claude-code":
-                    s = claude_parse(src["path"], m["session_id"])
-                else:
-                    s = codex_parse(
-                        src["path"],
-                        m["session_id"],
-                        byte_limit=src.get("byte_length"),
-                        expected_sha256=src.get("sha256"),
-                    )
-            except (OSError, UnicodeDecodeError, ValueError):
-                s = None
-            if s is None:
-                continue
+            continue
+        s = project_window(s, window)
         tpath = os.path.join(home, "transcripts", m["agent"], m["session_id"] + ".txt")
         with open(tpath, "w", encoding="utf-8") as fh:
             fh.write(format_transcript(s, m))
@@ -911,6 +1036,7 @@ def main():
                         "transcript_path": tpath, "facet_path": facet_path,
                         "user_message_count": m["user_message_count"],
                         "parser_schema_version": SCHEMA_VERSION,
+                        "analysis_window": window,
                         "chars": os.path.getsize(tpath)})
 
     with open(os.path.join(home, "work/pending_facets.json"), "w", encoding="utf-8") as fh:
@@ -934,6 +1060,9 @@ def main():
         "home": home,
         "scanned_files": len(scanned),
         "metas_total": len(metas),
+        # Binding to this collection prevents retained files from earlier manifests
+        # or max-load skips leaking into an otherwise identical analysis window.
+        "included_meta_keys": [[m["agent"], m["session_id"]] for m in metas],
         "metas_by_agent": by_agent,
         "from_cache": skipped_cache,
         "parsed_now": loaded - failed,
@@ -948,6 +1077,15 @@ def main():
             None,
         ),
         "codex_ownership": {
+            "fork_lineage_unverified": [
+                {"session_id": m["session_id"], "is_internal": m.get("is_internal"),
+                 "user_message_count": m["user_message_count"],
+                 "has_window_activity": m.get("has_window_activity"),
+                 "status": m["source_audit"]["fork_history"]["status"]}
+                for m in metas if m.get("agent") == "codex"
+                and (m.get("source_audit") or {}).get("fork_history")
+                and m["source_audit"]["fork_history"]["status"] != "native_anchored_exact_prefix"
+            ],
             "files_with_imported_history": sum(
                 bool(audit.get("imported_session_ids")) for audit in codex_audits
             ),
@@ -969,6 +1107,9 @@ def main():
             ),
         },
         "facet_window_days": args.days,
+        "analysis_window": window,
+        "display_timezone": display_timezone,
+        "root_sessions_in_window": sum(not m.get("is_internal") and m["user_message_count"] >= 1 for m in metas),
         "internal_sessions_excluded": internal_count,
         "substantive_total": len(substantive),
         "substantive_in_window": len(in_window),

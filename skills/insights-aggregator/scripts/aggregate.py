@@ -11,12 +11,18 @@
 """
 
 import argparse
+import copy
 import json
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
+from urllib.parse import quote
 
-from collect import SCHEMA_VERSION
+from zoneinfo import ZoneInfo
+
+from collect import (SCHEMA_VERSION, analysis_window, display_timezone_info,
+                     facet_matches_window, parse_ts, tool_metric_coverage)
+from evidence_bundle import load_bundle
 
 HANDOFF_WINDOW_MIN = 45      # 同项目跨工具接力窗口
 OVERLAP_WINDOW_MS = 30 * 60_000  # 并行检测滑动窗口（与源码一致）
@@ -80,6 +86,7 @@ def aggregate_group(metas, facets_by_key):
         "total_messages": 0, "total_duration_hours": 0.0,
         "total_input_tokens": 0, "total_output_tokens": 0,
         "tool_counts": {}, "tool_category_counts": {}, "languages": {},
+        "tool_wrapped_calls": 0,
         "git_commits": 0, "git_pushes": 0, "projects": {},
         "goal_categories": {}, "outcomes": {}, "satisfaction": {},
         "helpfulness": {}, "session_types": {}, "friction": {}, "success": {},
@@ -92,16 +99,26 @@ def aggregate_group(metas, facets_by_key):
         "days_active": 0, "messages_per_day": 0, "message_hours": [],
         "models": {}, "reasoning_effort": {},
         "thinking_turns": 0, "thinking_total": 0,
+        "token_usage_missing_events": 0,
         "sessions_with_mixed_models": 0,
         "sessions_with_mixed_reasoning_effort": 0,
     }
     dates, rts = [], []
     for m in metas:
-        dates.append(m["start_time"])
+        local_dates = m.get("message_dates")
+        if not local_dates:
+            zone_name = (m.get("display_timezone") or {}).get("name", "local")
+            zone = ZoneInfo(zone_name) if zone_name != "local" else None
+            local_dates = [stamp.astimezone(zone).date().isoformat()
+                           for stamp in (parse_ts(value) for value in
+                                         (m.get("user_message_timestamps") or [m["start_time"]])) if stamp]
+        dates.extend(local_dates)
         r["total_messages"] += m["user_message_count"]
+        r["tool_wrapped_calls"] += m.get("tool_wrapped_calls", 0)
         r["total_duration_hours"] += m.get("active_minutes", m["duration_minutes"]) / 60
         r["total_input_tokens"] += m["input_tokens"]
         r["total_output_tokens"] += m["output_tokens"]
+        r["token_usage_missing_events"] += m.get("token_usage_missing_events", 0)
         r["git_commits"] += m["git_commits"]
         r["git_pushes"] += m["git_pushes"]
         r["total_interruptions"] += m["user_interruptions"]
@@ -155,7 +172,7 @@ def aggregate_group(metas, facets_by_key):
             sm, se = m.get("models") or {}, m.get("reasoning_effort") or {}
             r["session_summaries"].append({
                 "agent": m["agent"], "id": m["session_id"][:8],
-                "date": m["start_time"][:10],
+                "date": local_dates[0] if local_dates else m["start_time"][:10],
                 "model": max(sm, key=sm.get) if sm else None,
                 "effort": max(se, key=se.get) if se else None,
                 "active_minutes": m.get("active_minutes"),
@@ -175,6 +192,7 @@ def aggregate_group(metas, facets_by_key):
     r["days_active"] = len(days)
     r["messages_per_day"] = round(r["total_messages"] / len(days), 1) if days else 0
     r["total_duration_hours"] = round(r["total_duration_hours"], 1)
+    r["metric_coverage"] = tool_metric_coverage(r["tool_wrapped_calls"])
     return r
 
 
@@ -281,8 +299,9 @@ def top(d, n):
 
 def build_context(agg, facets):
     c = agg["combined"]
+    multi_tool = len(agg["by_agent"]) > 1
     lines = ["# Usage data for insight generation", "",
-             "## Combined stats (all agents)", "```json"]
+             "## Combined stats (report scope)", "```json"]
     lines.append(json.dumps({
         "agents_present": list(agg["by_agent"].keys()),
         "sessions": c["total_sessions"], "analyzed_with_facets": c["sessions_with_facets"],
@@ -300,7 +319,7 @@ def build_context(agg, facets):
     }, ensure_ascii=False, indent=1))
     lines.append("```")
 
-    lines.append("\n## Per-agent comparison\n```json")
+    lines.append("\n## Tool statistics\n```json")
     per = {}
     for agent, a in agg["by_agent"].items():
         per[agent] = {
@@ -324,35 +343,45 @@ def build_context(agg, facets):
     lines.append(json.dumps(per, ensure_ascii=False, indent=1))
     lines.append("```")
 
-    x = agg["cross_tool"]
-    lines.append("\n## Cross-tool signals\n```json")
-    lines.append(json.dumps({
-        "concurrent_multitasking": x["overlap"],
-        "same_project_handoffs": x["handoffs"]["direction_counts"],
-        "handoff_examples": x["handoffs"]["examples"][:12],
-        "project_tool_matrix": x["project_tool_matrix"],
-    }, ensure_ascii=False, indent=1))
-    lines.append("```")
+    if multi_tool:
+        x = agg["cross_tool"]
+        lines.append("\n## Cross-tool signals\n```json")
+        lines.append(json.dumps({
+            "concurrent_multitasking": x["overlap"],
+            "same_project_handoffs": x["handoffs"]["direction_counts"],
+            "handoff_examples": x["handoffs"]["examples"][:12],
+            "project_tool_matrix": x["project_tool_matrix"],
+        }, ensure_ascii=False, indent=1))
+        lines.append("```")
 
     lines.append("\n## Context notes（解读数据前必读）")
     w = agg.get("window") or {}
-    if w.get("days"):
+    if w.get("days") and agg.get("input_mode") != "evidence_bundle":
         lines.append(f"- 本报告是**阶段性窗口报告**：只覆盖最近 {w['days']} 天（{w.get('cutoff')} 之后）的会话，"
                      "统计与语义同窗。叙事请立足'这个阶段'，不要写成全历史总结。")
-    lines.append("- 跨工具混用的常见动因是**成本控制**而非单纯能力偏好：Codex 走官方模型，"
-                 "Claude Code 可方便地接入低成本第三方/国产模型（看 models_by_records 即可判断是否如此——"
-                 "若出现 kimi/deepseek/glm 等模型名，说明用户在用国产模型跑可控任务）。评价分工时请基于这一动因。")
-    lines.append("- Codex 的 models / reasoning_effort 单位是**去重后的 native turn（按 turn_id）配置记录**；"
-                 "缺少 turn_id 的旧记录保留为单条配置记录。Claude 的 models 单位仍是 assistant 消息。"
-                 "thinking_block_ratio 是 Claude 侧带思考块的消息占比，是推理深度的近似信号。")
+    if multi_tool:
+        lines.append("- 工具分工需要任务与结果证据。成本、环境或习惯都可能影响选择，"
+                     "不能仅凭模型名称或记录数量断定用户的动机。")
+    else:
+        lines.append("- 本期只分析 " + next(iter(agg["by_agent"]), "当前工具")
+                     + "，跳过工具对比、工具分工与跨工具组合建议。")
+    if "codex" in agg["by_agent"]:
+        lines.append("- Codex 的 models / reasoning_effort 单位是**去重后的 native turn（按 turn_id）配置记录**；"
+                     "缺少 turn_id 的旧记录保留为单条配置记录。")
+    if "claude-code" in agg["by_agent"]:
+        lines.append("- Claude Code 的 models 单位是 assistant 消息；thinking_block_ratio 是带思考块的消息占比，"
+                     "不能单独证明推理质量。")
     lines.append("- 当前数据没有把档位逐 turn 连接到设计、执行、审查阶段或最终结果；不要据此断言 max 导致慢、"
                  "造成过度设计，或某档位导致返工。模型/强度只可作为配置分布与人工复核线索。")
     n_internal = agg.get("internal_sessions_excluded") or 0
     if n_internal:
         b = agg.get("internal_breakdown") or {}
-        lines.append(f"- 已排除 {n_internal} 个**内部会话**（spawn_agent 子代理 {b.get('subagent', 0)} 个、"
-                     f"自动评审 {b.get('auto_review', 0)} 个）：它们不是用户发起的交互，"
-                     "根会话总览、成功率和分母均不含它们；内部模型/强度分布只在专题中单列。")
+        parts = [f"{label} {b[key]} 个" for key, label in
+                 (("subagent", "spawn_agent 子代理"), ("auto_review", "自动评审"), ("guardian_review", "Guardian 审阅"))
+                 if key in b]
+        detail = "（" + "、".join(parts) + "）" if parts else ""
+        lines.append(f"- 已排除 {n_internal} 个**内部会话**{detail}：这些内部执行记录单列，"
+                     "根会话总览、成功率和分母均不含它们；内部模型/强度分布只在专题中呈现。")
     internal = agg.get("internal_model_effort") or {}
     if internal.get("total_sessions"):
         lines.append("- 内部会话模型/强度（不计入根会话）："
@@ -379,6 +408,30 @@ def build_context(agg, facets):
             instr.append(f"- [{f.get('agent', '?')}] {i}")
     lines.append("\n## Repeated user instructions to agents")
     lines.extend(instr[:MAX_INSTRUCTIONS] if instr else ["- None captured"])
+    for key, title in (("selection", "Selection and sample limitations"),
+                       ("sources", "Traceable evidence sources"),
+                       ("knowledge_candidates", "Optional historical knowledge candidates"),
+                       ("infrastructure_observations", "Optional infrastructure observations")):
+        if agg.get(key):
+            lines.extend([f"\n## {title}", "```json",
+                          json.dumps(agg[key], ensure_ascii=False, indent=1), "```"])
+    if agg.get("input_mode") == "evidence_bundle":
+        lines.extend(["\n## Evidence bundle interpretation",
+                      "- 此输入复用已准备证据；未重新采集，不代表全量随机样本。直接阅读不等于完成 facet。",
+                      "- null 以及不在 available_metrics 中的字段均为未知/未采集，不能解释为 0。",
+                      "- 未提供跨工具指标时，空容器是显示占位，不能解释为没有并行或接力。",
+                      "- 同一工具内部的 Agent/subagent/Skill/model/tool 可独立分析；单工具不生成跨工具对比。",
+                      "```json", json.dumps({"combined": c.get("available_metrics"),
+                      "by_agent": {a: g.get("available_metrics") for a, g in agg["by_agent"].items()},
+                      "cross_tool_metrics_available": agg.get("cross_tool_metrics_available")},
+                      ensure_ascii=False, indent=1), "```"])
+    # Optional facet fields are candidates, never instructions or adopted policy.
+    for key in ("knowledge_candidates", "infrastructure_observations"):
+        candidates = [{"session_id": f.get("session_id"), "agent": f.get("agent"), "items": f[key]}
+                      for f in facets if f.get(key)]
+        if candidates:
+            lines.extend([f"\n## Facet {key}", "```json",
+                          json.dumps(candidates, ensure_ascii=False, indent=1), "```"])
     return "\n".join(lines)
 
 
@@ -388,26 +441,76 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--home", default=os.path.expanduser("~/.agent-insights"))
     ap.add_argument("--days", type=int, default=30, help="报告窗口：最近 N 天（0=全历史），统计与语义同窗")
+    ap.add_argument("--since", help="活动窗口起点 ISO 8601（开区间），优先于 --days")
+    ap.add_argument("--timezone", help="日期/小时显示时区；默认沿用 collect 时区或宿主本地时区")
     ap.add_argument("--as-of", help="冻结窗口截止时间（ISO 8601；默认当前 UTC 时间）")
+    ap.add_argument("--evidence-bundle", help="复用已准备证据与已知统计；跳过会话缓存采集/聚合")
     args = ap.parse_args()
     home = args.home
+    if args.evidence_bundle:
+        try:
+            agg = load_bundle(args.evidence_bundle, aggregate_group([], {}), parse_iso)
+        except (ValueError, OSError) as exc:
+            ap.error(str(exc))
+        write_outputs(home, agg, [])
+        return
 
-    as_of = parse_iso(args.as_of) if args.as_of else datetime.now(timezone.utc)
-    if as_of is None:
-        ap.error("--as-of 必须是 ISO 8601 时间，例如 2026-08-27T13:56:10.186054+00:00")
-    as_of = as_of.astimezone(timezone.utc)
 
+    # A normal collect -> aggregate run must reuse the same frozen instant.
+    collected = None
+    try:
+        with open(os.path.join(home, "work/collect-summary.json"), encoding="utf-8") as fh:
+            collected = json.load(fh)
+    except (OSError, ValueError):
+        pass
+    saved_window = (collected or {}).get("analysis_window")
+    use_saved = (not args.as_of and saved_window
+                 and ((args.since and parse_ts(args.since) == parse_ts(saved_window.get("since")))
+                      or (not args.since and args.days == collected.get("facet_window_days"))))
+    try:
+        window = dict(saved_window) if use_saved else analysis_window(args.days, args.since, args.as_of)
+    except ValueError as exc:
+        ap.error(str(exc))
+    as_of = parse_ts(window["as_of"])
+    try:
+        display_timezone = display_timezone_info(
+            args.timezone or ((collected or {}).get("display_timezone") or {}).get("name"), as_of)
+    except ValueError as exc:
+        ap.error(str(exc))
+    # Preserve explicitly supplied formatting in generated_at for existing consumers.
+    generated_at = (parse_ts(args.as_of).isoformat() if args.as_of else as_of.isoformat())
+    cutoff_iso = window["since"] or ""
     metas = []
+    rejected_window_metas = 0
+    excluded_collection_metas = 0
+    rejected_timezone_metas = 0
+    collected_keys = (collected or {}).get("included_meta_keys")
+    allowed_keys = {tuple(key) for key in collected_keys} if collected_keys is not None else None
     for agent in ("claude-code", "codex"):
-        metas.extend(load_dir(os.path.join(home, "cache/meta", agent)))
-    # 窗口过滤：统计与语义使用同一时间窗，保证报告叙事口径一致
-    cutoff_iso = ""
-    if args.days > 0:
-        cutoff_iso = (as_of - timedelta(days=args.days)) \
-            .isoformat().replace("+00:00", "Z")
-        metas = [m for m in metas if m["start_time"] >= cutoff_iso]
+        for meta in load_dir(os.path.join(home, "cache/meta", agent)):
+            if allowed_keys is not None and (meta.get("agent"), meta.get("session_id")) not in allowed_keys:
+                excluded_collection_metas += 1
+                continue
+            if meta.get("display_timezone") is not None and meta["display_timezone"] != display_timezone:
+                rejected_timezone_metas += 1
+                continue
+            stamp = meta.get("analysis_window")
+            if stamp is not None:
+                valid = stamp == window and meta.get("schema_version") == SCHEMA_VERSION
+            else:
+                # Old lifecycle caches are safe only when wholly inside scope.
+                start = parse_ts(meta.get("start_time"))
+                end = parse_ts(meta.get("end_time") or meta.get("start_time"))
+                valid = (start is not None and end is not None and end <= as_of
+                         and (not window["since"] or start > parse_ts(window["since"])))
+            if valid:
+                metas.append(meta)
+            else:
+                rejected_window_metas += 1
+    metas_by_key = {(m["agent"], m["session_id"]): m for m in metas}
     facets_raw = []
     stale_codex_facet_keys = set()
+    stale_window_facet_keys = set()
     for agent in ("claude-code", "codex"):
         for f in load_dir(os.path.join(home, "cache/facets", agent)):
             if valid_facet(f):
@@ -416,25 +519,21 @@ def main():
                         and f.get("_parser_schema_version") != SCHEMA_VERSION):
                     stale_codex_facet_keys.add(("codex", f.get("session_id")))
                     continue
+                key = (f["agent"], f.get("session_id"))
+                meta = metas_by_key.get(key)
+                if meta is None or not facet_matches_window(f, meta):
+                    stale_window_facet_keys.add(key)
+                    continue
                 facets_raw.append(f)
 
     facets_by_key = {(f["agent"], f["session_id"]): f for f in facets_raw if f.get("session_id")}
 
-    # substantive + warmup + 内部会话过滤
-    def is_minimal(m):
-        f = facets_by_key.get((m["agent"], m["session_id"]))
-        if not f:
-            return False
-        cats = [k for k, v in (f.get("goal_categories") or {}).items() if v > 0]
-        return cats == ["warmup_minimal"]
-
     # 内部会话（spawn_agent 子会话 / 纯自动评审）单独计数后排除：
     # 它们不是用户发起的交互，会虚高会话数、low 档位占比和"并行多开"信号
-    internal = [m for m in metas if m.get("is_internal")]
+    internal = [m for m in metas if m.get("is_internal") and m.get("has_window_activity", True)]
     metas = [m for m in metas
              if not m.get("is_internal")
-             and m["user_message_count"] >= 2 and m["duration_minutes"] >= 1
-             and not is_minimal(m)]
+             and m["user_message_count"] >= 1]
     # 分支/重复去重（同 agent+session_id 保留人类消息最多者）
     best = {}
     for m in metas:
@@ -451,14 +550,21 @@ def main():
 
     internal_group = aggregate_group(internal, facets_by_key)
     agg = {
-        "generated_at": as_of.isoformat(),
+        "generated_at": generated_at,
         "stale_codex_facets_ignored": stale_codex_facets_ignored,
+        "stale_window_facets_ignored": sum((m["agent"], m["session_id"]) in stale_window_facet_keys for m in metas),
+        "mismatched_window_metas_ignored": rejected_window_metas,
+        "out_of_collection_metas_ignored": excluded_collection_metas,
+        "mismatched_timezone_metas_ignored": rejected_timezone_metas,
+        "display_timezone": display_timezone,
         "window": {"days": args.days, "cutoff": cutoff_iso[:10] if cutoff_iso else None,
-                   "as_of": as_of.isoformat()},
+                   "as_of": window["as_of"], "since": window["since"],
+                   "bounds": "(since, as_of]"},
         "internal_sessions_excluded": len(internal),
         "internal_breakdown": {
             "subagent": sum(1 for m in internal if m.get("thread_source") == "subagent"),
-            "auto_review": sum(1 for m in internal if m.get("thread_source") != "subagent"),
+            "auto_review": sum(1 for m in internal if m.get("thread_source") not in {"subagent", "guardian_review"}),
+            "guardian_review": sum(1 for m in internal if m.get("thread_source") == "guardian_review"),
         },
         "internal_model_effort": {
             "total_sessions": internal_group["total_sessions"],
@@ -475,22 +581,60 @@ def main():
         },
     }
 
+    write_outputs(home, agg, used_facets)
+
+
+def namespace_facet_sources(facets):
+    """Keep cached facets intact; local S1 ids are only meaningful within a session."""
+    result = copy.deepcopy(facets)
+    for facet in result:
+        prefix = "facet/" + "/".join(quote(str(facet.get(key) or ""), safe="")
+                                      for key in ("agent", "session_id")) + "/"
+        sources = facet.get("sources") or []
+        ids = [source.get("id") for source in sources]
+        if any(not isinstance(source_id, str) or not source_id for source_id in ids):
+            raise ValueError("facet sources require nonempty string ids")
+        if len(ids) != len(set(ids)):
+            raise ValueError(f"duplicate source ids within facet {facet.get('session_id')}")
+        def source_id(local_id):
+            return prefix + quote(local_id, safe="")
+        for source in sources:
+            source["id"] = source_id(source["id"])
+            source.setdefault("session_id", facet.get("session_id"))
+        for key in ("knowledge_candidates", "infrastructure_observations"):
+            for item in facet.get(key) or []:
+                # Namespace unresolved references too: they must not match another session's id.
+                item["evidence"] = [source_id(value) for value in item.get("evidence") or []]
+    return result
+
+
+def write_outputs(home, agg, used_facets):
+    if agg.get("input_mode") != "evidence_bundle":
+        used_facets = namespace_facet_sources(used_facets)
     os.makedirs(os.path.join(home, "work"), exist_ok=True)
     out = os.path.join(home, "work/aggregated.json")
+    if "sources" not in agg:
+        agg["sources"] = [source for f in used_facets for source in f.get("sources") or []]
     with open(out, "w", encoding="utf-8") as fh:
         json.dump(agg, fh, ensure_ascii=False, indent=1)
+    os.chmod(out, 0o600)
     ctx = build_context(agg, used_facets)
     ctx_path = os.path.join(home, "work/insight-context.md")
     with open(ctx_path, "w", encoding="utf-8") as fh:
         fh.write(ctx)
-
+    os.chmod(ctx_path, 0o600)
     print(json.dumps({
-        "sessions_after_filter": len(metas),
-        "internal_sessions_excluded": len(internal),
+        "sessions_after_filter": agg["combined"]["total_sessions"],
+        "input_mode": agg.get("input_mode", "session_cache"),
+        "internal_sessions_excluded": agg.get("internal_sessions_excluded"),
         "by_agent": {a: g["total_sessions"] for a, g in agg["by_agent"].items()},
-        "facets_used": len(used_facets),
-        "stale_codex_facets_ignored": stale_codex_facets_ignored,
-        "cross_tool_overlap_events": agg["cross_tool"]["overlap"]["cross_tool_overlap_events"],
+        "facets_used": agg["combined"]["sessions_with_facets"],
+        "stale_codex_facets_ignored": agg.get("stale_codex_facets_ignored"),
+        "stale_window_facets_ignored": agg.get("stale_window_facets_ignored"),
+        "mismatched_window_metas_ignored": agg.get("mismatched_window_metas_ignored"),
+        "out_of_collection_metas_ignored": agg.get("out_of_collection_metas_ignored"),
+        "mismatched_timezone_metas_ignored": agg.get("mismatched_timezone_metas_ignored"),
+        "cross_tool_overlap_events": agg["cross_tool"]["overlap"].get("cross_tool_overlap_events"),
         "handoff_direction_counts": agg["cross_tool"]["handoffs"]["direction_counts"],
         "aggregated": out, "insight_context": ctx_path,
         "context_chars": len(ctx),
